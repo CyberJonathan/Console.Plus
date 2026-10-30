@@ -1,0 +1,1213 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Console online minimalista para editar código." />
+    <title>Console.Plus()</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* Tokens */
+      :root {
+        color-scheme: dark;
+        --bg: #0d0d0d;
+        --panel: #161616;
+        --panel-2: #1e1e1e;
+        --border: #2a2a2a;
+        --text: #cfcfcf;
+        --text-dim: #7a7a7a;
+        --hover: #262626;
+        --ok: #6fbf73;
+        --err: #d9605a;
+        --emerald: #06bf2e;
+        --danger: #b94b4b;
+        --user: #8b8f96;
+        --library: #6fbf73;
+        --data: #6f9fd0;
+        --radius: 2px;
+        --gap: 8px;
+        --blue: #5d8dcc;
+        --red: #c96a6a;
+        --yellow: #c7a85a;
+        --font: "JetBrains Mono", monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+      }
+
+      body {
+        min-width: 320px;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font);
+        font-size: 13px;
+      }
+
+      button,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--panel-2);
+        color: var(--text);
+        cursor: pointer;
+        user-select: none;
+        transition: background-color 120ms, color 120ms;
+      }
+
+      button:hover {
+        background: var(--hover);
+      }
+
+      button:active {
+        background: var(--bg);
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.4;
+      }
+
+      button:focus-visible,
+      textarea:focus-visible {
+        outline: 1px solid var(--text-dim);
+        outline-offset: -1px;
+      }
+
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+
+      ::-webkit-scrollbar-track {
+        background: var(--bg);
+      }
+
+      ::-webkit-scrollbar-thumb {
+        background: var(--border);
+      }
+
+      ::-webkit-scrollbar-thumb:hover {
+        background: var(--text-dim);
+      }
+
+      ::selection {
+        background: #3a3a3a;
+        color: #ffffff;
+      }
+
+      /* Layout */
+      .app {
+        display: grid;
+        grid-template-rows: auto auto minmax(0, 1fr);
+        width: 100%;
+        height: 100vh;
+        flex-direction: column;
+      }
+
+      .topbar {
+        display: flex;
+        min-height: 46px;
+        align-items: center;
+        gap: var(--gap);
+        padding: var(--gap) 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel);
+      }
+
+      .user-identity {
+        display: flex;
+        align-items: center;
+        gap: var(--gap);
+        color: var(--text-dim);
+        font-size: 11px;
+        letter-spacing: normal;
+        line-height: normal;
+        text-transform: none;
+        white-space: nowrap;
+      }
+
+      .user-identity {
+        padding: 0;
+        border: 0;
+        background: transparent;
+        text-align: left;
+      }
+
+      .user-identity:hover {
+        background: transparent;
+        color: var(--text);
+      }
+
+      .user-avatar {
+        display: grid;
+        width: 24px;
+        height: 24px;
+        place-items: center;
+        border: 1px solid var(--user);
+        border-radius: 50%;
+        color: var(--text);
+        font-size: 10px;
+      }
+
+      .topbar-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--gap);
+        margin-left: auto;
+      }
+
+      .topbar button {
+        min-height: 28px;
+        padding: 0 12px;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        line-height: 16px;
+        text-transform: uppercase;
+      }
+
+      #addFileButton {
+        width: 28px;
+        padding: 0;
+        border-color: var(--emerald);
+        background: var(--emerald);
+        color: var(--bg);
+        font-size: 18px;
+        line-height: 1;
+      }
+
+      #addFileButton:hover {
+        background: #1ab17f;
+        color: var(--bg);
+      }
+
+      /* Abas */
+      .tabs {
+        display: flex;
+        min-height: 36px;
+        overflow-x: auto;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel);
+        scrollbar-width: none;
+      }
+
+      .tabs::-webkit-scrollbar {
+        display: none;
+      }
+
+      .tab {
+        display: flex;
+        min-width: 120px;
+        max-width: 220px;
+        height: 36px;
+        align-items: center;
+        gap: var(--gap);
+        padding: 0 12px;
+        border: 0;
+        border-radius: 0;
+        border-right: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text-dim);
+        text-align: left;
+      }
+
+      .tab.active {
+        margin-bottom: -1px;
+        border-top: 1px solid var(--text-dim);
+        background: var(--panel-2);
+        color: var(--text);
+      }
+
+      .tab > span:last-child {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .tab-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .presence-icons {
+        display: inline-flex;
+        flex: 0 0 auto;
+        margin-left: auto;
+      }
+
+      .presence-icon {
+        display: grid;
+        width: 14px;
+        height: 14px;
+        margin-left: -3px;
+        place-items: center;
+        border: 1px solid var(--panel);
+        border-radius: 50%;
+        background: var(--user);
+        color: var(--bg);
+        font-size: 7px;
+        font-weight: 500;
+      }
+
+      .presence-icon:first-child {
+        margin-left: 0;
+      }
+
+      .tab-dots {
+        display: inline-flex;
+        flex: 0 0 auto;
+        gap: 4px;
+        opacity: 0.6;
+      }
+
+      .tab:hover .tab-dots,
+      .tab.active .tab-dots {
+        opacity: 1;
+      }
+
+      .tab-dot {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+      }
+
+      .tab-dot-blue {
+        background: var(--blue);
+      }
+
+      .tab-dot-red {
+        background: var(--red);
+      }
+
+      .tab-dot-yellow {
+        background: var(--yellow);
+      }
+
+      /* Editor */
+      .workspace {
+        display: flex;
+        min-height: 0;
+        flex: 1;
+        flex-direction: column;
+      }
+
+      .workspace,
+      .editor-panel,
+      .editor-shell {
+        min-height: 0;
+      }
+
+      .editor-panel {
+        display: flex;
+        position: relative;
+        min-height: 0;
+        flex: 1;
+        flex-direction: column;
+      }
+
+      .console-toolbar {
+        display: flex;
+        position: absolute;
+        z-index: 3;
+        top: 16px;
+        right: 16px;
+        min-height: 28px;
+        align-items: center;
+        padding: 0;
+        border: 1px solid var(--border);
+        background: var(--panel-2);
+      }
+
+      .console-toolbar button {
+        min-width: 52px;
+        height: 28px;
+        margin: 0;
+        padding: 0 8px;
+        border-radius: 0;
+        font-size: 12px;
+      }
+
+      #copyButton {
+        width: 30px;
+        min-width: 35px;
+        padding: 0;
+        display: inline-flex; 
+        align-items: center;   
+        justify-content: center; 
+        transform: scaleX(-1);
+      }
+
+      .copy-icon {
+        display: block;
+        width: 18px;
+        height: 18px;
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 1.5;
+      }
+
+      .console-toolbar button + button {
+        margin-left: -1px;
+      }
+
+      .console-toolbar button:first-child {
+        border-radius: var(--radius) 0 0 var(--radius);
+      }
+
+      .console-toolbar button:last-child {
+        border-radius: 0 var(--radius) var(--radius) 0;
+      }
+
+      .console-toolbar::after {
+        display: none;
+      }
+
+      #runButton {
+        border-color: var(--emerald);
+        background: var(--emerald);
+        color: var(--bg);
+      }
+
+      #runButton:hover {
+        background: #04df0f;
+      }
+
+      #stopButton {
+        border-color: var(--danger);
+        background: var(--danger);
+        color: var(--text);
+      }
+
+      #stopButton:hover {
+        background: #ce5757;
+      }
+
+      #runButton:active,
+      #stopButton:active {
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      .shortcut {
+        margin-left: 8px;
+        color: rgba(13, 13, 13, 0.72);
+        font-size: 10px;
+      }
+
+      #stopButton .shortcut {
+        color: rgba(207, 207, 207, 0.72);
+      }
+
+      .editor-shell {
+        display: flex;
+        position: relative;
+        z-index: 0;
+        min-height: 0;
+        flex: 1;
+        border-top: 1px solid var(--border);
+        background: var(--bg);
+      }
+
+      .code-area {
+        position: relative;
+        min-width: 0;
+        min-height: 0;
+        flex: 1;
+        overflow: hidden;
+      }
+
+      .code-highlight,
+      .line-numbers {
+        pointer-events: none;
+      }
+
+      .code-highlight {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        margin: 0;
+        padding: 16px;
+        color: var(--text);
+        font: 13px/1.6 var(--font);
+        font-variant-ligatures: none;
+        white-space: pre;
+      }
+
+      .code-editor {
+        position: relative;
+        z-index: 1;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        resize: none;
+        overflow: auto;
+        padding: 16px;
+        border: 0;
+        border-radius: var(--radius);
+        outline: none;
+        background: transparent;
+        caret-color: var(--text);
+        color: transparent;
+        font: 13px/1.6 var(--font);
+        font-variant-ligatures: none;
+        tab-size: 2;
+        white-space: pre;
+      }
+
+      .code-editor::selection {
+        background: #3a3a3a;
+        color: transparent;
+      }
+
+      .syntax-keyword,
+      .syntax-function {
+        color: #d6b36a;
+      }
+
+      .syntax-library {
+        color: var(--library);
+      }
+
+      .syntax-data {
+        color: var(--data);
+      }
+
+      .syntax-main {
+        color: var(--text);
+      }
+
+      .syntax-string {
+        color: #9eaa8b;
+      }
+
+      .syntax-comment {
+        color: var(--text-dim);
+      }
+
+      .syntax-number {
+        color: #b6a0c9;
+      }
+
+      .line-numbers {
+        width: 48px;
+        flex: 0 0 48px;
+        overflow: hidden;
+        padding: 16px 12px 16px 0;
+        border-right: 1px solid var(--border);
+        color: var(--text-dim);
+        font: 13px/1.6 var(--font);
+        text-align: right;
+        user-select: none;
+        white-space: pre;
+      }
+
+      .result-panel {
+        display: flex;
+        height: 30%;
+        min-height: 120px;
+        flex-direction: column;
+        border-top: 1px solid var(--border);
+        background: var(--bg);
+      }
+
+      .result-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 24px;
+        padding: 4px 12px;
+        border-bottom: 1px solid var(--border);
+        color: var(--text-dim);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        line-height: 16px;
+        text-transform: uppercase;
+      }
+
+      .execution-status {
+        color: var(--text-dim);
+        font-size: 10px;
+        letter-spacing: 0;
+        text-transform: none;
+      }
+
+      .execution-status.success {
+        color: var(--ok);
+      }
+
+      .execution-status.error {
+        color: var(--err);
+      }
+
+      .result-output {
+        min-height: 0;
+        flex: 1;
+        margin: 0;
+        padding: 8px 12px;
+        overflow: auto;
+        color: var(--text);
+        font: 13px/1.6 var(--font);
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .result-output.success {
+        color: var(--ok);
+      }
+
+      .result-output.error {
+        color: var(--err);
+      }
+
+      .result-output.waiting {
+        color: var(--text-dim);
+      }
+
+      .stdin-form {
+        display: flex;
+        gap: 8px;
+        padding: 8px 12px 12px;
+        border-top: 1px solid var(--border);
+      }
+
+      .stdin-form[hidden] {
+        display: none;
+      }
+
+      .stdin-form input {
+        min-width: 0;
+        height: 28px;
+        flex: 1;
+        padding: 0 8px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--panel-2);
+        color: var(--text);
+        font: 12px var(--font);
+      }
+
+      .stdin-form button {
+        height: 28px;
+        padding: 0 12px;
+        border-color: var(--emerald);
+        background: var(--emerald);
+        color: var(--bg);
+        font-size: 11px;
+      }
+
+      .prompt {
+        color: var(--text-dim);
+      }
+
+      .cursor {
+        display: inline-block;
+        width: 8px;
+        animation: blink 1s steps(1) infinite;
+        color: var(--text-dim);
+      }
+
+      .toast {
+        position: fixed;
+        right: 16px;
+        bottom: 40px;
+        z-index: 5;
+        max-width: min(320px, calc(100vw - 32px));
+        padding: 8px 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--panel-2);
+        color: var(--text);
+        font: 11px/1.5 var(--font);
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(4px);
+        transition: opacity 120ms, transform 120ms;
+      }
+
+      .toast.visible {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .name-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: grid;
+        place-items: center;
+        padding: 16px;
+        background: rgba(0, 0, 0, 0.72);
+      }
+
+      .name-modal[hidden] {
+        display: none;
+      }
+
+      .name-dialog {
+        width: min(360px, 100%);
+        padding: 16px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--panel-2);
+      }
+
+      .name-dialog h2 {
+        margin: 0 0 12px;
+        color: var(--text);
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .name-dialog label {
+        display: block;
+        margin-bottom: 8px;
+        color: var(--text-dim);
+        font-size: 11px;
+      }
+
+      .name-dialog input {
+        width: 100%;
+        height: 30px;
+        padding: 0 8px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg);
+        color: var(--text);
+        font: 12px var(--font);
+      }
+
+      .name-dialog input:focus-visible {
+        outline: 1px solid var(--text-dim);
+        outline-offset: -1px;
+      }
+
+      .name-error {
+        min-height: 16px;
+        margin-top: 4px;
+        color: var(--err);
+        font-size: 10px;
+      }
+
+      .name-dialog-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      .name-dialog-actions button {
+        min-height: 28px;
+        padding: 0 12px;
+        font-size: 11px;
+      }
+
+      @keyframes blink {
+        50% {
+          visibility: hidden;
+        }
+      }
+
+      /* Barra de status */
+      .statusbar {
+        display: flex;
+        min-height: 24px;
+        height: 24px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 12px;
+        border-top: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text-dim);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .statusbar-right {
+        display: flex;
+        gap: 16px;
+      }
+
+      .statusbar-right span + span {
+        padding-left: 16px;
+        border-left: 1px solid var(--border);
+      }
+
+      /* Utilitários */
+      * {
+        scrollbar-width: thin;
+        scrollbar-color: var(--border) var(--bg);
+      }
+
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+
+      ::-webkit-scrollbar-track {
+        background: var(--bg);
+      }
+
+      ::-webkit-scrollbar-thumb {
+        background: var(--border);
+      }
+
+      ::-webkit-scrollbar-thumb:hover {
+        background: var(--text-dim);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .cursor {
+          animation: none;
+        }
+      }
+
+      @media (max-width: 520px) {
+        .topbar {
+          padding: 8px;
+        }
+
+        .code-editor {
+          padding: 16px 8px;
+        }
+
+        .result-panel {
+          height: 34%;
+        }
+      }
+
+      @media (max-width: 600px) {
+        .shortcut {
+          display: none;
+        }
+
+        .line-numbers {
+          width: 36px;
+          flex-basis: 36px;
+          padding-right: 8px;
+        }
+
+        .user-identity span:last-child {
+          display: none;
+        }
+
+        .code-highlight,
+        .code-editor {
+          padding-left: 8px;
+          padding-right: 8px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <!-- Barra superior -->
+      <header class="topbar">
+        <button class="user-identity" id="userIdentity" type="button" aria-label="Alterar nome do usuário">
+          <span class="user-avatar">JD</span>
+          <span id="userName">João Developer</span>
+        </button>
+        <div class="topbar-actions">
+          <button id="addFileButton" type="button" aria-label="Adicionar arquivo">+</button>
+          <button id="usersButton" type="button">Usuários</button>
+        </div>
+      </header>
+
+      <!-- Abas de arquivo -->
+      <nav class="tabs" aria-label="Arquivos abertos">
+        <button class="tab active" type="button" aria-selected="true">
+          <span class="tab-dots" aria-hidden="true">
+            <span class="tab-dot tab-dot-blue"></span>
+            <span class="tab-dot tab-dot-red"></span>
+            <span class="tab-dot tab-dot-yellow"></span>
+          </span>
+          <span class="tab-name">main.c</span>
+          <span class="presence-icons" aria-label="Usuários no arquivo">
+            <span class="presence-icon">JD</span>
+          </span>
+        </button>
+      </nav>
+
+      <section class="workspace">
+        <!-- Console -->
+        <section class="editor-panel" aria-label="Editor de código">
+          <div class="console-toolbar">
+            <button id="runButton" type="button">Run <span class="shortcut">Ctrl+Enter</span></button>
+            <button id="stopButton" type="button">Stop <span class="shortcut">Esc</span></button>
+            <button id="copyButton" type="button" aria-label="Copiar código" title="Copiar código">
+              <svg class="copy-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="8" y="8" width="11" height="11" rx="1"></rect>
+                <path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"></path>
+              </svg>
+            </button>
+          </div>
+          <div class="editor-shell">
+            <div id="lineNumbers" class="line-numbers" aria-hidden="true"></div>
+            <div class="code-area">
+              <pre id="codeHighlight" class="code-highlight" aria-hidden="true"></pre>
+              <textarea id="codeEditor" class="code-editor" spellcheck="false" aria-label="Código">#include <stdio.h>
+
+int main() {
+  printf("Olá, mundo!\n");
+  return 0;
+}</textarea>
+            </div>
+          </div>
+        </section>
+
+        <!-- Resultado -->
+        <section class="result-panel" aria-live="polite">
+          <div class="result-title">
+            <span>Resultado</span>
+            <span id="executionStatus" class="execution-status">Aguardando execução</span>
+          </div>
+          <pre id="resultOutput" class="result-output waiting">&gt; aguardando execução <span class="cursor">_</span></pre>
+          <form id="stdinForm" class="stdin-form" hidden>
+            <input id="stdinInput" type="text" placeholder="Digite os valores do scanf, separados por espaço" autocomplete="off" />
+            <button type="submit">Executar</button>
+          </form>
+        </section>
+      </section>
+      <!-- Barra de status -->
+      <footer class="statusbar">
+        <span>Ln 1, Col 1</span>
+        <span class="statusbar-right"><span>C</span><span>0 ms</span></span>
+      </footer>
+    </main>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <div id="nameModal" class="name-modal" role="presentation" hidden>
+      <form class="name-dialog" id="nameForm" role="dialog" aria-modal="true" aria-labelledby="nameDialogTitle">
+        <h2 id="nameDialogTitle">Identificação do usuário</h2>
+        <label for="nameInput">Nome exibido na sala</label>
+        <input id="nameInput" name="name" type="text" maxlength="32" autocomplete="off" />
+        <p id="nameError" class="name-error" aria-live="polite"></p>
+        <div class="name-dialog-actions">
+          <button id="cancelNameButton" type="button">Cancelar</button>
+          <button type="submit">Salvar</button>
+        </div>
+      </form>
+    </div>
+
+    <script>
+      const editor = document.querySelector("#codeEditor");
+      const codeHighlight = document.querySelector("#codeHighlight");
+      const output = document.querySelector("#resultOutput");
+      const toast = document.querySelector("#toast");
+      const lineNumbers = document.querySelector("#lineNumbers");
+      const executionStatus = document.querySelector("#executionStatus");
+      const stdinForm = document.querySelector("#stdinForm");
+      const stdinInput = document.querySelector("#stdinInput");
+      const userName = document.querySelector("#userName");
+      const userAvatar = document.querySelector(".user-avatar");
+      const firstPresenceIcon = document.querySelector(".presence-icon");
+      const nameModal = document.querySelector("#nameModal");
+      const nameForm = document.querySelector("#nameForm");
+      const nameInput = document.querySelector("#nameInput");
+      const nameError = document.querySelector("#nameError");
+      const cancelNameButton = document.querySelector("#cancelNameButton");
+      let runTimer;
+      let toastTimer;
+
+      function updateUserIdentity(name) {
+        const normalizedName = name.trim().replace(/\s+/g, " ").slice(0, 32);
+        if (!normalizedName) return;
+        const initials = normalizedName
+          .split(" ")
+          .slice(0, 2)
+          .map((part) => part[0])
+          .join("")
+          .toUpperCase();
+        userName.textContent = normalizedName;
+        userAvatar.textContent = initials;
+        firstPresenceIcon.textContent = initials;
+        localStorage.setItem("console-user-name", normalizedName);
+      }
+
+      function setExecutionStatus(message, state = "") {
+        executionStatus.textContent = message;
+        executionStatus.className = `execution-status ${state}`.trim();
+      }
+
+      function escapeHtml(value) {
+        return value.replace(/[&<>"']/g, (character) => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#039;",
+        })[character]);
+      }
+
+      function highlightCode(value) {
+        const tokenPattern = /#[ \t]*include[ \t]*<[^>\n]+>|\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|#[A-Za-z_]+|\b\d+(?:\.\d+)?\b|\b[A-Za-z_]\w*\b/g;
+        let outputHtml = "";
+        let lastIndex = 0;
+        let match;
+
+        while ((match = tokenPattern.exec(value)) !== null) {
+          outputHtml += escapeHtml(value.slice(lastIndex, match.index));
+          const token = match[0];
+          const escaped = escapeHtml(token);
+          let className = "";
+
+          if (/^#[ \t]*include[ \t]*</.test(token)) {
+            className = "syntax-library";
+          } else if (token.startsWith("//") || token.startsWith("/*")) {
+            className = "syntax-comment";
+          } else if (token.startsWith('"')) {
+            className = "syntax-string";
+          } else if (/^(int|char|float|double|void|return|const|if|else|for|while|struct)$/.test(token)) {
+            className = "syntax-data";
+          } else if (token.startsWith("#")) {
+            className = "syntax-keyword";
+          } else if (/^(printf|scanf)$/.test(token)) {
+            className = "syntax-function";
+          } else if (token === "main") {
+            className = "syntax-main";
+          } else if (/^\d/.test(token)) {
+            className = "syntax-number";
+          }
+
+          outputHtml += className ? `<span class="${className}">${escaped}</span>` : escaped;
+          lastIndex = tokenPattern.lastIndex;
+        }
+
+        return outputHtml + escapeHtml(value.slice(lastIndex));
+      }
+
+      function updateLineNumbers() {
+        lineNumbers.textContent = Array.from(
+          { length: editor.value.split("\n").length },
+          (_, index) => index + 1,
+        ).join("\n");
+        codeHighlight.innerHTML = highlightCode(editor.value);
+      }
+
+      function setOutput(message, state) {
+        output.className = `result-output ${state}`;
+        output.replaceChildren();
+        const prompt = document.createElement("span");
+        const text = document.createElement("span");
+        prompt.className = "prompt";
+        text.textContent = message;
+        prompt.textContent = "● ";
+        output.append(prompt, text);
+      }
+
+      function showToast(message) {
+        window.clearTimeout(toastTimer);
+        toast.textContent = message;
+        toast.classList.add("visible");
+        toastTimer = window.setTimeout(() => toast.classList.remove("visible"), 1800);
+      }
+
+      function setStdinVisible(visible) {
+        stdinForm.hidden = !visible;
+        if (visible) {
+          stdinInput.value = "";
+          stdinInput.focus();
+        }
+      }
+
+      async function executeWithJudge0(stdin = "") {
+        setOutput("Executando...", "waiting");
+        setExecutionStatus("Executando...", "waiting");
+        const startedAt = performance.now();
+
+        try {
+          const response = await fetch("/api/run", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ sourceCode: editor.value, languageId: 50, stdin }),
+          });
+          const result = await response.json();
+          if (!response.ok) {
+            const details = result.details ? ` ${result.details}` : "";
+            throw new Error(`${result.error ?? "O backend recusou a execução."}${details}`);
+          }
+
+          const message = result.stdout || result.stderr || result.compile_output || result.message || "Programa executado sem saída.";
+          const failed = Boolean(result.compile_output || result.stderr || result.status?.id >= 4);
+          const elapsedMs = Math.round(performance.now() - startedAt);
+          document.querySelector(".statusbar-right span:last-child").textContent =
+            `${result.time ? Math.round(Number(result.time) * 1000) : elapsedMs} ms`;
+          setOutput(message, failed ? "error" : "success");
+          setExecutionStatus(failed ? (result.status?.description ?? "Erro na execução") : "Programa executado com sucesso", failed ? "error" : "success");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Falha desconhecida ao executar.";
+          setOutput(message, "error");
+          setExecutionStatus("Erro na execução", "error");
+        }
+      }
+
+      function splitArguments(value) {
+        const argumentsList = [];
+        let current = "";
+        let inString = false;
+
+        for (const character of value) {
+          if (character === '"' && current.at(-1) !== "\\") inString = !inString;
+          if (character === "," && !inString) {
+            argumentsList.push(current.trim());
+            current = "";
+          } else {
+            current += character;
+          }
+        }
+
+        if (current.trim()) argumentsList.push(current.trim());
+        return argumentsList;
+      }
+
+      function collectVariables(code) {
+        const variables = {};
+        const declarations = /\b(?:int|float|double|char)\s+([A-Za-z_]\w*)\s*=\s*([^;]+);/g;
+        for (const declaration of code.matchAll(declarations)) {
+          variables[declaration[1]] = declaration[2].trim();
+        }
+        return variables;
+      }
+
+      function resolvePrintfValue(value, variables) {
+        const normalized = value.trim();
+        if (Object.hasOwn(variables, normalized)) return variables[normalized];
+        if (/^"(?:\\.|[^"\\])*"$/.test(normalized)) {
+          return normalized
+            .slice(1, -1)
+            .replace(/\\n/g, "\n")
+            .replace(/\\t/g, "\t")
+            .replace(/\\"/g, '"');
+        }
+        return normalized;
+      }
+
+      function formatPrintf(format, argumentsText, variables) {
+        const values = splitArguments(argumentsText).map((value) => resolvePrintfValue(value, variables));
+        let valueIndex = 0;
+        return format
+          .replace(/\\n/g, "\n")
+          .replace(/\\t/g, "\t")
+          .replace(/\\"/g, '"')
+          .replace(/%[dfics]/g, (specifier) => {
+            const value = values[valueIndex++] ?? "";
+            if (specifier === "%s" && value.startsWith('"')) return value.slice(1, -1);
+            return value;
+          });
+      }
+
+      editor.addEventListener("input", () => {
+        localStorage.setItem("console-source-code", editor.value);
+        updateLineNumbers();
+      });
+      editor.addEventListener("scroll", () => {
+        lineNumbers.scrollTop = editor.scrollTop;
+        codeHighlight.scrollTop = editor.scrollTop;
+        codeHighlight.scrollLeft = editor.scrollLeft;
+      });
+      editor.addEventListener("keydown", (event) => {
+        if (event.key !== "Tab") return;
+        event.preventDefault();
+        const start = editor.selectionStart;
+        const end = editor.selectionEnd;
+        editor.setRangeText("  ", start, end, "end");
+        updateLineNumbers();
+      });
+
+      document.querySelector("#copyButton").addEventListener("click", async () => {
+        await navigator.clipboard.writeText(editor.value);
+        showToast("Código copiado.");
+      });
+
+      document.querySelector("#runButton").addEventListener("click", () => {
+        window.clearTimeout(runTimer);
+        setStdinVisible(/\bscanf\s*\(/.test(editor.value));
+        if (/\bscanf\s*\(/.test(editor.value)) {
+          setOutput("Entrada necessária para scanf.", "waiting");
+          setExecutionStatus("Aguardando entrada", "waiting");
+          return;
+        }
+        executeWithJudge0();
+      });
+
+      stdinForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        setStdinVisible(false);
+        executeWithJudge0(stdinInput.value);
+      });
+
+      document.querySelector("#stopButton").addEventListener("click", () => {
+        window.clearTimeout(runTimer);
+        setStdinVisible(false);
+        setExecutionStatus("Execução interrompida", "error");
+        showToast("Execução interrompida.");
+      });
+
+      document.querySelector("#addFileButton").addEventListener("click", () => {
+        showToast("Adicionar arquivo ficará disponível na próxima etapa.");
+      });
+
+      document.querySelector("#usersButton").addEventListener("click", () => {
+        showToast("Colaboração ficará disponível na próxima etapa.");
+      });
+
+      function closeNameModal() {
+        nameModal.hidden = true;
+        nameError.textContent = "";
+      }
+
+      function openNameModal() {
+        nameInput.value = userName.textContent;
+        nameError.textContent = "";
+        nameModal.hidden = false;
+        nameInput.focus();
+        nameInput.select();
+      }
+
+      document.querySelector("#userIdentity").addEventListener("click", openNameModal);
+      cancelNameButton.addEventListener("click", closeNameModal);
+      nameModal.addEventListener("click", (event) => {
+        if (event.target === nameModal) closeNameModal();
+      });
+      nameForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const nextName = nameInput.value.trim();
+        if (!nextName) {
+          nameError.textContent = "Digite um nome para continuar.";
+          nameInput.focus();
+          return;
+        }
+        updateUserIdentity(nextName);
+        closeNameModal();
+        showToast("Nome atualizado.");
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !nameModal.hidden) closeNameModal();
+      });
+
+      const savedCode = localStorage.getItem("console-source-code");
+      if (savedCode !== null) editor.value = savedCode;
+      updateUserIdentity(localStorage.getItem("console-user-name") ?? "João Developer");
+      updateLineNumbers();
+    </script>
+  </body>
+</html>

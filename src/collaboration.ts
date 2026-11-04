@@ -15,9 +15,10 @@ import { WebrtcProvider } from "y-webrtc";
 
 const editor = document.querySelector<HTMLTextAreaElement>("#codeEditor");
 const usersButton = document.querySelector<HTMLButtonElement>("#usersButton");
+const inviteUsersButton = document.querySelector<HTMLButtonElement>("#inviteUsersButton");
 const toast = document.querySelector<HTMLElement>("#toast");
 
-if (!editor || !usersButton || !toast) {
+if (!editor || !usersButton || !inviteUsersButton || !toast) {
   throw new Error("Elementos necessários para colaboração não foram encontrados.");
 }
 
@@ -136,10 +137,13 @@ provider.on("status", ({ connected }: { connected: boolean }) => {
   showToast(connected ? `Sala ${roomCode} sincronizada.` : "Colaboração offline.");
 });
 
-usersButton!.addEventListener("click", async () => {
+async function copyRoomInvite(): Promise<void> {
   await navigator.clipboard.writeText(`${location.origin}${location.pathname}?room=${roomCode}`);
   showToast(`Convite da sala ${roomCode} copiado.`);
-});
+}
+
+usersButton!.addEventListener("click", () => void copyRoomInvite());
+inviteUsersButton!.addEventListener("click", () => void copyRoomInvite());
 
 if (requiredConfig.some((value) => !value)) {
   showToast("Firebase ainda não configurado. Crie o arquivo .env.local.");

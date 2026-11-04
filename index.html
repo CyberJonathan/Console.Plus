@@ -185,7 +185,7 @@
         text-transform: uppercase;
       }
 
-      #addFileButton {
+      #inviteUsersButton {
         width: 28px;
         padding: 0;
         border-color: var(--emerald);
@@ -195,7 +195,7 @@
         line-height: 1;
       }
 
-      #addFileButton:hover {
+      #inviteUsersButton:hover {
         background: #1ab17f;
         color: var(--bg);
       }
@@ -830,8 +830,8 @@
           <span id="userName">João Developer</span>
         </button>
         <div class="topbar-actions">
-          <button id="addFileButton" type="button" aria-label="Adicionar arquivo">+</button>
-          <button id="usersButton" type="button">Usuários</button>
+          <button id="inviteUsersButton" type="button" aria-label="Adicionar usuário" title="Copiar convite da sala">+</button>
+          <button id="usersButton" type="button">Usuários (0/2)</button>
         </div>
       </header>
 
@@ -1162,14 +1162,6 @@ int main() {
         setStdinVisible(false);
         setExecutionStatus("Execução interrompida", "error");
         showToast("Execução interrompida.");
-      });
-
-      document.querySelector("#addFileButton").addEventListener("click", () => {
-        showToast("Adicionar arquivo ficará disponível na próxima etapa.");
-      });
-
-      document.querySelector("#usersButton").addEventListener("click", () => {
-        showToast("Colaboração ficará disponível na próxima etapa.");
       });
 
       function closeNameModal() {

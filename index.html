@@ -149,6 +149,8 @@
         border: 0;
         background: transparent;
         text-align: left;
+        margin-left: 0;
+        transform: translateX(-25px);
       }
 
       .user-identity:hover {
@@ -275,7 +277,7 @@
       .tab-dots {
         display: inline-flex;
         flex: 0 0 auto;
-        gap: 4px;
+        gap: 2px;
         opacity: 0.6;
       }
 
@@ -285,8 +287,8 @@
       }
 
       .tab-dot {
-        width: 5px;
-        height: 5px;
+        width: 4px;
+        height: 4px;
         border-radius: 50%;
       }
 
@@ -1209,5 +1211,6 @@ int main() {
       updateUserIdentity(localStorage.getItem("console-user-name") ?? "João Developer");
       updateLineNumbers();
     </script>
+    <script type="module" src="/src/collaboration.ts"></script>
   </body>
 </html>

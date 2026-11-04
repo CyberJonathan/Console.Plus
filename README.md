@@ -19,6 +19,7 @@ interface principal e seu JavaScript inline.
 - [Como o editor funciona](#como-o-editor-funciona)
 - [Como a execução de C funciona](#como-a-execução-de-c-funciona)
 - [Como a colaboração funciona](#como-a-colaboração-funciona)
+- [Como configurar o Firebase](#como-configurar-o-firebase)
 - [Backend e API](#backend-e-api)
 - [Instalação e execução](#instalação-e-execução)
 - [Variáveis de ambiente](#variáveis-de-ambiente)
@@ -366,6 +367,96 @@ Ainda nessa implementação, o código:
 O chat não possui backend nem persistência. A mensagem é adicionada apenas ao
 DOM da aba atual. O convite também não envia e-mail: ele apenas facilita o
 compartilhamento do código da sala.
+
+## Como configurar o Firebase
+
+O beta usa o Firebase somente para autenticação anônima e controle da sala.
+O conteúdo do editor continua sendo sincronizado pelo Yjs/WebRTC. Nenhum
+login ou cadastro é exibido para o usuário.
+
+### 1. Criar o projeto
+
+1. Acesse o [Firebase Console](https://console.firebase.google.com/).
+2. Crie um projeto.
+3. Adicione um aplicativo Web.
+4. Em **Authentication > Sign-in method**, habilite **Anonymous**.
+5. Em **Realtime Database**, crie um banco de dados.
+6. Publique o conteúdo de
+   [`firebase.database.rules.json`](./firebase.database.rules.json) em
+   **Realtime Database > Rules**.
+
+As regras limitam cada sala a dois participantes. Elas não são uma solução de
+autorização permanente para a versão futura com mais usuários.
+
+### 2. Configurar o ambiente local
+
+Copie [`.env.example`](./.env.example) para `.env.local` e preencha os valores
+do aplicativo Web fornecidos pelo Firebase:
+
+```sh
+cp .env.example .env.local
+```
+
+O arquivo `.env.local` não deve ser commitado. As variáveis usadas pelo
+frontend são:
+
+```text
+VITE_FIREBASE_API_KEY
+VITE_FIREBASE_AUTH_DOMAIN
+VITE_FIREBASE_DATABASE_URL
+VITE_FIREBASE_PROJECT_ID
+VITE_FIREBASE_STORAGE_BUCKET
+VITE_FIREBASE_MESSAGING_SENDER_ID
+VITE_FIREBASE_APP_ID
+```
+
+### 3. Testar duas pessoas
+
+Execute:
+
+```sh
+npm run dev
+```
+
+Abra a URL exibida pelo Vite. O aplicativo gera uma sala e coloca o código na
+URL, por exemplo `?room=ABC123`. Clique em **Usuários (1/2)** para copiar o
+convite e abra a URL em outro navegador ou dispositivo. A segunda pessoa entra
+anonimamente e as alterações no editor são sincronizadas pelo Yjs.
+
+Uma terceira pessoa recebe uma mensagem informando que a sala está cheia.
+Neste beta, o código da sala funciona como convite; não existe autenticação
+visível para o usuário.
+
+### 4. Publicar na Vercel
+
+Na configuração do projeto na Vercel, adicione as mesmas variáveis `VITE_*`
+do `.env.local`. Elas são incorporadas ao bundle do frontend durante o build;
+isso é esperado para a configuração pública do Firebase. A proteção real vem
+das Security Rules.
+
+O frontend e a função serverless de execução são publicados juntos na Vercel.
+A função está em [`api/run.ts`](./api/run.ts) e mantém o endpoint relativo
+`/api/run` usado pelo frontend. O Firebase não executa essa API nem compila o
+C.
+
+Na Vercel, adicione também estas variáveis em **Settings > Environment
+Variables**:
+
+```text
+JUDGE0_URL=https://ce.judge0.com
+JUDGE0_TIMEOUT_MS=8000
+JUDGE0_AUTH_TOKEN=
+```
+
+`JUDGE0_AUTH_TOKEN` é opcional e só deve ser preenchida se a instância do
+Judge0 exigir autenticação. Ela não deve começar com `VITE_`, pois é segredo de
+servidor e nunca pode ser enviado ao navegador.
+
+O limite padrão da função é de 8 segundos para funcionar no plano gratuito da
+Vercel. Programas pequenos devem executar normalmente; execuções que excederem
+esse limite retornam `504`. O backend Express em
+[`server/index.ts`](./server/index.ts) continua disponível para desenvolvimento
+local com `npm run dev:all`.
 
 ## Backend e API
 

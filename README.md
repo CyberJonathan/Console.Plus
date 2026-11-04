@@ -374,6 +374,12 @@ O beta usa o Firebase somente para autenticação anônima e controle da sala.
 O conteúdo do editor continua sendo sincronizado pelo Yjs/WebRTC. Nenhum
 login ou cadastro é exibido para o usuário.
 
+Cada participante possui um arquivo próprio dentro da sala. O dono da sala vê
+o próprio arquivo como `main.c`; os demais arquivos aparecem com o nome do
+respectivo participante, como `Joao.c`. O participante convidado vê o próprio
+arquivo como `main.c` e o arquivo do dono com o nome dele. Todos os arquivos
+podem ser selecionados e editados por qualquer participante da sala.
+
 ### 1. Criar o projeto
 
 1. Acesse o [Firebase Console](https://console.firebase.google.com/).

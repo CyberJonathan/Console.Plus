@@ -20,6 +20,12 @@ const toast = document.querySelector<HTMLElement>("#toast");
 const membersPanel = document.querySelector<HTMLElement>("#membersPanel");
 const membersList = document.querySelector<HTMLUListElement>("#membersList");
 const tabs = document.querySelector<HTMLElement>(".tabs");
+const starterCode = `#include <stdio.h>
+
+int main() {
+  printf("Olá, mundo!\\n");
+  return 0;
+}`;
 
 if (!editor || !usersButton || !inviteUsersButton || !toast || !membersPanel || !membersList || !tabs) {
   throw new Error("Elementos necessários para colaboração não foram encontrados.");
@@ -114,13 +120,13 @@ function renderMembers(value: unknown): void {
 }
 
 function fileLabel(fileKey: string, members: Record<string, unknown>): string {
-  if (fileKey === "main.c") return "main.c";
   const userId = fileKey.replace("personal:", "");
   const member = members[userId];
   const name = member && typeof member === "object" && "name" in member
     ? String(member.name)
     : "Usuario";
-  return `main-${name.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-|-$/g, "") || "Usuario"}.c`;
+  if (userId === getAuth(firebaseApp!).currentUser?.uid) return "main.c";
+  return `${name.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-|-$/g, "") || "Usuario"}.c`;
 }
 
 function renderTabs(
@@ -129,7 +135,7 @@ function renderTabs(
   onSelect: (fileKey: string) => void,
 ): void {
   tabs!.replaceChildren();
-  const fileKeys = ["main.c", ...Object.keys(members).map((userId) => `personal:${userId}`)];
+  const fileKeys = Object.keys(members).map((userId) => `personal:${userId}`);
 
   for (const fileKey of fileKeys) {
     const tab = document.createElement("button");
@@ -206,7 +212,6 @@ const ydoc = new Y.Doc();
 const provider = new WebrtcProvider(`console-room-${roomCode}`, ydoc, {
   signaling: ["wss://y-webrtc-eu.fly.dev", "wss://y-webrtc-us.fly.dev"],
 });
-const files = ydoc.getMap<Y.Text>("files");
 let activeFileKey = "main.c";
 let activeText: Y.Text | null = null;
 let applyingRemoteChange = false;
@@ -217,11 +222,7 @@ let isRoomOwner = false;
 let roomMembers: Record<string, unknown> = {};
 
 function getOrCreateFile(fileKey: string): Y.Text {
-  const existing = files.get(fileKey);
-  if (existing) return existing;
-  const created = new Y.Text();
-  files.set(fileKey, created);
-  return created;
+  return ydoc.getText(`console-file-${fileKey}`);
 }
 
 function observeActiveFile(text: Y.Text): void {
@@ -248,14 +249,12 @@ function selectFile(fileKey: string): void {
 
 function finishCollaborationSetup(): void {
   if (collaborationReady || !roomJoined || (!isRoomOwner && !providerSynced)) return;
-  const sharedFile = getOrCreateFile("main.c");
-  if (sharedFile.length === 0 && isRoomOwner) {
-    sharedFile.insert(0, editor!.value);
-  }
-  const personalFile = getOrCreateFile(`personal:${getAuth(firebaseApp!).currentUser?.uid ?? "local"}`);
+  const userId = getAuth(firebaseApp!).currentUser?.uid ?? "local";
+  const personalFile = getOrCreateFile(`personal:${userId}`);
   if (personalFile.length === 0) {
-    personalFile.insert(0, editor!.value);
+    personalFile.insert(0, isRoomOwner ? editor!.value : starterCode);
   }
+  activeFileKey = `personal:${userId}`;
   selectFile(activeFileKey);
   collaborationReady = true;
   showToast(`Sala ${roomCode} sincronizada.`);

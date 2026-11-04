@@ -70,7 +70,7 @@ function replaceEditorValue(value: string): void {
 }
 
 function getUserName(): string {
-  return document.querySelector<HTMLElement>("#userName")?.textContent?.trim() || "Usuário";
+  return document.querySelector<HTMLElement>("#userName")?.textContent?.trim() || "Usuario";
 }
 
 function renderMembers(value: unknown): void {
@@ -90,7 +90,7 @@ function renderMembers(value: unknown): void {
   for (const [, member] of entries) {
     const name = member && typeof member === "object" && "name" in member
       ? String(member.name)
-      : "Usuário";
+      : "Usuario";
     const item = document.createElement("li");
     item.className = "member-item";
     const status = document.createElement("span");
@@ -103,7 +103,7 @@ function renderMembers(value: unknown): void {
   }
 }
 
-async function joinRoom(roomCode: string, userId: string): Promise<() => void> {
+async function joinRoom(roomCode: string, userId: string): Promise<{ cleanup: () => void; isOwner: boolean }> {
   if (!database) throw new Error("Firebase ainda não foi configurado.");
   const roomRef = ref(database, `rooms/${roomCode}`);
   const membersRef = ref(database, `rooms/${roomCode}/members`);
@@ -129,12 +129,15 @@ async function joinRoom(roomCode: string, userId: string): Promise<() => void> {
   }
 
   await onDisconnect(memberRef).remove();
-  await set(memberRef, true);
+  await set(memberRef, { name: getUserName() });
   renderMembers(result.snapshot.child("members").val());
 
-  return () => {
-    membersListener();
-    void remove(memberRef);
+  return {
+    isOwner: result.snapshot.child("ownerId").val() === userId,
+    cleanup: () => {
+      membersListener();
+      void remove(memberRef);
+    },
   };
 }
 
@@ -146,6 +149,9 @@ const provider = new WebrtcProvider(`console-room-${roomCode}`, ydoc, {
 const ytext = ydoc.getText("main.c");
 let applyingRemoteChange = false;
 let collaborationReady = false;
+let isRoomOwner = false;
+let roomJoined = false;
+let providerSynced = false;
 
 editor!.addEventListener("input", () => {
   if (applyingRemoteChange || !collaborationReady) return;
@@ -168,17 +174,20 @@ provider.on("status", ({ connected }: { connected: boolean }) => {
 });
 
 function finishCollaborationSetup(): void {
-  if (collaborationReady) return;
-  if (ytext.length === 0) {
+  if (collaborationReady || !roomJoined || (!isRoomOwner && !providerSynced)) return;
+  if (ytext.length === 0 && isRoomOwner) {
     ytext.insert(0, editor!.value);
-  } else {
+  } else if (ytext.length > 0) {
     replaceEditorValue(ytext.toString());
   }
   collaborationReady = true;
   showToast(`Sala ${roomCode} sincronizada.`);
 }
 
-provider.on("synced", finishCollaborationSetup);
+provider.on("synced", () => {
+  providerSynced = true;
+  finishCollaborationSetup();
+});
 window.setTimeout(finishCollaborationSetup, 5000);
 
 async function copyRoomInvite(): Promise<void> {
@@ -207,9 +216,22 @@ if (requiredConfig.some((value) => !value)) {
       usersButton!.textContent = "Usuários (1/2)";
       return joinRoom(roomCode, user.uid);
     })
+    .then(({ isOwner }) => {
+      isRoomOwner = isOwner;
+      roomJoined = true;
+      finishCollaborationSetup();
+    })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : "Não foi possível entrar na sala.";
       showToast(message);
       usersButton!.textContent = "Sala indisponível";
     });
 }
+
+window.addEventListener("console:user-name-changed", (event) => {
+  if (!database) return;
+  const name = (event as CustomEvent<{ name?: unknown }>).detail?.name;
+  const user = getAuth(firebaseApp!).currentUser;
+  if (!user || typeof name !== "string" || !name.trim()) return;
+  void set(ref(database, `rooms/${roomCode}/members/${user.uid}`), { name: name.trim() });
+});

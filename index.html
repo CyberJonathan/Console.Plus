@@ -881,7 +881,7 @@
       <header class="topbar">
         <button class="user-identity" id="userIdentity" type="button" aria-label="Alterar nome do usuário">
           <span class="user-avatar">JD</span>
-          <span id="userName">João Developer</span>
+          <span id="userName">Usuario</span>
         </button>
         <div class="topbar-actions">
           <button id="usersButton" type="button">Usuários (0/2)</button>
@@ -1001,6 +1001,9 @@ int main() {
         userAvatar.textContent = initials;
         firstPresenceIcon.textContent = initials;
         localStorage.setItem("console-user-name", normalizedName);
+        window.dispatchEvent(new CustomEvent("console:user-name-changed", {
+          detail: { name: normalizedName },
+        }));
       }
 
       function setExecutionStatus(message, state = "") {
@@ -1258,7 +1261,8 @@ int main() {
 
       const savedCode = localStorage.getItem("console-source-code");
       if (savedCode !== null) editor.value = savedCode;
-      updateUserIdentity(localStorage.getItem("console-user-name") ?? "João Developer");
+      const savedUserName = localStorage.getItem("console-user-name");
+      updateUserIdentity(savedUserName === "João Developer" ? "Usuario" : savedUserName ?? "Usuario");
       updateLineNumbers();
     </script>
     <script type="module" src="/src/collaboration.ts"></script>

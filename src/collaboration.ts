@@ -209,8 +209,9 @@ async function joinRoom(
 
 const roomCode = getRoomCode();
 const ydoc = new Y.Doc();
+const signalingUrl = import.meta.env.VITE_YJS_SIGNALING_URL || "wss://signaling.yjs.dev";
 const provider = new WebrtcProvider(`console-room-${roomCode}`, ydoc, {
-  signaling: ["wss://y-webrtc-eu.fly.dev", "wss://y-webrtc-us.fly.dev"],
+  signaling: [signalingUrl],
 });
 let activeFileKey = "main.c";
 let activeText: Y.Text | null = null;

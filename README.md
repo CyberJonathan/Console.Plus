@@ -374,6 +374,12 @@ O beta usa o Firebase somente para autenticação anônima e controle da sala.
 O conteúdo do editor continua sendo sincronizado pelo Yjs/WebRTC. Nenhum
 login ou cadastro é exibido para o usuário.
 
+O Yjs precisa de um servidor de sinalização WebSocket para encontrar os
+navegadores. A configuração padrão usa `wss://signaling.yjs.dev`. Essa
+sinalização não armazena o código: depois que os navegadores se encontram, a
+sincronização ocorre diretamente entre eles. Para usar um servidor próprio,
+defina `VITE_YJS_SIGNALING_URL` no ambiente do Vite e na Vercel.
+
 Cada participante possui um arquivo próprio dentro da sala. O dono da sala vê
 o próprio arquivo como `main.c`; os demais arquivos aparecem com o nome do
 respectivo participante, como `Joao.c`. O participante convidado vê o próprio

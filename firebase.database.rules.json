@@ -6,7 +6,7 @@
         ".write": "auth != null && (!data.exists() || data.child('members').child(auth.uid).exists() || (newData.child('members').hasChildren() && newData.child('members').numChildren() <= 2))",
         "members": {
           "$uid": {
-            ".write": "auth != null && $uid === auth.uid && newData.val() === true"
+            ".write": "auth != null && $uid === auth.uid"
           }
         }
       }

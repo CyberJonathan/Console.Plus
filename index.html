@@ -200,6 +200,60 @@
         color: var(--bg);
       }
 
+      .members-panel {
+        position: fixed;
+        z-index: 10;
+        top: 54px;
+        right: 16px;
+        width: min(280px, calc(100vw - 32px));
+        padding: 14px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--panel-2);
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+      }
+
+      .members-panel[hidden] {
+        display: none;
+      }
+
+      .members-panel h2 {
+        margin: 0 0 12px;
+        color: var(--text);
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      .members-list {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .member-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text);
+        font-size: 11px;
+      }
+
+      .member-status {
+        width: 7px;
+        height: 7px;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        background: var(--ok);
+      }
+
+      .members-empty {
+        margin: 0;
+        color: var(--text-dim);
+        font-size: 11px;
+      }
+
       /* Abas */
       .tabs {
         display: flex;
@@ -830,8 +884,8 @@
           <span id="userName">João Developer</span>
         </button>
         <div class="topbar-actions">
-          <button id="inviteUsersButton" type="button" aria-label="Adicionar usuário" title="Copiar convite da sala">+</button>
           <button id="usersButton" type="button">Usuários (0/2)</button>
+          <button id="inviteUsersButton" type="button" aria-label="Adicionar usuário" title="Copiar convite da sala">+</button>
         </div>
       </header>
 
@@ -897,6 +951,10 @@ int main() {
       </footer>
     </main>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <section id="membersPanel" class="members-panel" hidden aria-labelledby="membersTitle">
+      <h2 id="membersTitle">Usuários online</h2>
+      <ul id="membersList" class="members-list"></ul>
+    </section>
     <div id="nameModal" class="name-modal" role="presentation" hidden>
       <form class="name-dialog" id="nameForm" role="dialog" aria-modal="true" aria-labelledby="nameDialogTitle">
         <h2 id="nameDialogTitle">Identificação do usuário</h2>

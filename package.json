@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "server": "tsx server/index.ts",
+    "signaling": "node node_modules/y-webrtc/bin/server.js",
     "dev:all": "concurrently \"vite\" \"tsx server/index.ts\""
   },
   "dependencies": {

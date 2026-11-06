@@ -517,6 +517,11 @@ sinalização não armazena o código: depois que os navegadores se encontram, a
 sincronização ocorre diretamente entre eles. Para usar um servidor próprio,
 defina `VITE_YJS_SIGNALING_URL` no ambiente do Vite e na Vercel.
 
+Se o servidor público não estiver disponível, o projeto também pode iniciar
+um servidor próprio com `npm run signaling`. Esse processo deve ficar em uma
+hospedagem que suporte WebSocket, como um Web Service do Render; ele não deve
+ser publicado como função serverless da Vercel.
+
 Cada participante possui um arquivo próprio dentro da sala. O dono da sala vê
 o próprio arquivo como `main.c`; os demais arquivos aparecem com o nome do
 respectivo participante, como `Joao.c`. O participante convidado vê o próprio
@@ -606,6 +611,36 @@ Vercel. Programas pequenos devem executar normalmente; execuções que excederem
 esse limite retornam `504`. O backend Express em
 [`server/index.ts`](./server/index.ts) continua disponível para desenvolvimento
 local com `npm run dev:all`.
+
+### 5. Hospedar o sinalizador WebSocket no Render
+
+Para evitar a dependência do `wss://signaling.yjs.dev`, crie um **Web Service**
+no Render apontando para este repositório e use:
+
+```text
+Runtime: Node
+Build Command: npm install
+Start Command: npm run signaling
+```
+
+Não informe uma porta fixa: o servidor usa automaticamente a variável `PORT`
+fornecida pelo Render. Depois do deploy, o Render fornecerá uma URL HTTPS,
+por exemplo:
+
+```text
+https://console-plus-signaling.onrender.com
+```
+
+Na Vercel, altere a variável pública:
+
+```text
+VITE_YJS_SIGNALING_URL=wss://console-plus-signaling.onrender.com
+```
+
+Troque `https://` por `wss://`, salve para **Production** e **Preview** e faça
+um novo deploy da Vercel. O servidor de sinalização precisa permanecer como
+Web Service; funções serverless não mantêm o WebSocket persistente necessário
+pelo `y-webrtc`.
 
 ## Backend e API
 

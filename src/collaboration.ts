@@ -89,6 +89,36 @@ function replaceEditorValue(value: string): void {
   editor!.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+function updateYTextIncrementally(text: Y.Text, previousValue: string, nextValue: string): void {
+  let prefixLength = 0;
+  while (
+    prefixLength < previousValue.length &&
+    prefixLength < nextValue.length &&
+    previousValue[prefixLength] === nextValue[prefixLength]
+  ) {
+    prefixLength += 1;
+  }
+
+  let suffixLength = 0;
+  while (
+    suffixLength < previousValue.length - prefixLength &&
+    suffixLength < nextValue.length - prefixLength &&
+    previousValue[previousValue.length - 1 - suffixLength] ===
+      nextValue[nextValue.length - 1 - suffixLength]
+  ) {
+    suffixLength += 1;
+  }
+
+  const deletedLength = previousValue.length - prefixLength - suffixLength;
+  const insertedValue = nextValue.slice(prefixLength, nextValue.length - suffixLength);
+
+  if (deletedLength === 0 && insertedValue.length === 0) return;
+  ydoc.transact(() => {
+    if (deletedLength > 0) text.delete(prefixLength, deletedLength);
+    if (insertedValue.length > 0) text.insert(prefixLength, insertedValue);
+  });
+}
+
 function renderMembers(value: unknown): void {
   const members = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const entries = Object.entries(members);
@@ -221,6 +251,7 @@ let roomJoined = false;
 let providerSynced = false;
 let isRoomOwner = false;
 let roomMembers: Record<string, unknown> = {};
+let lastEditorValue = "";
 
 function getOrCreateFile(fileKey: string): Y.Text {
   return ydoc.getText(`console-file-${fileKey}`);
@@ -229,15 +260,43 @@ function getOrCreateFile(fileKey: string): Y.Text {
 function observeActiveFile(text: Y.Text): void {
   activeText?.unobserve(updateEditorFromActiveFile);
   activeText = text;
+  lastEditorValue = text.toString();
   activeText.observe(updateEditorFromActiveFile);
 }
 
-function updateEditorFromActiveFile(): void {
+function updateEditorFromActiveFile(event?: Y.YTextEvent): void {
   const nextValue = activeText?.toString() ?? "";
-  if (nextValue === editor!.value) return;
+  if (nextValue === editor!.value) {
+    lastEditorValue = nextValue;
+    return;
+  }
+
   applyingRemoteChange = true;
-  replaceEditorValue(nextValue);
+  if (event) {
+    let editorValue = editor!.value;
+    let offset = 0;
+    let canApplyDelta = true;
+
+    for (const operation of event.delta) {
+      if (typeof operation.retain === "number") {
+        offset += operation.retain;
+      } else if (typeof operation.delete === "number") {
+        editorValue = editorValue.slice(0, offset) + editorValue.slice(offset + operation.delete);
+      } else if (typeof operation.insert === "string") {
+        editorValue = editorValue.slice(0, offset) + operation.insert + editorValue.slice(offset);
+        offset += operation.insert.length;
+      } else {
+        canApplyDelta = false;
+        break;
+      }
+    }
+
+    replaceEditorValue(canApplyDelta && editorValue === nextValue ? editorValue : nextValue);
+  } else {
+    replaceEditorValue(nextValue);
+  }
   applyingRemoteChange = false;
+  lastEditorValue = nextValue;
 }
 
 function selectFile(fileKey: string): void {
@@ -263,10 +322,9 @@ function finishCollaborationSetup(): void {
 
 editor!.addEventListener("input", () => {
   if (applyingRemoteChange || !collaborationReady || !activeText) return;
-  ydoc.transact(() => {
-    activeText!.delete(0, activeText!.length);
-    activeText!.insert(0, editor!.value);
-  });
+  const nextValue = editor!.value;
+  updateYTextIncrementally(activeText, lastEditorValue, nextValue);
+  lastEditorValue = nextValue;
 });
 
 provider.on("status", ({ connected }: { connected: boolean }) => {

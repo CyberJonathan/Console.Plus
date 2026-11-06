@@ -5,11 +5,11 @@ programas em C no navegador. A interface tem um visual escuro e minimalista,
 com editor de código, destaque de sintaxe, numeração de linhas, entrada para
 `scanf`, área de resultado e ações de copiar e executar.
 
-O projeto também contém uma implementação colaborativa baseada em Monaco,
-Yjs e WebRTC em [src/main.ts](./src/main.ts). Essa implementação é uma segunda
-superfície de código que está preparada para o editor colaborativo, mas a
-página usada atualmente pelo Vite é [index.html](./index.html), que contém a
-interface principal e seu JavaScript inline.
+O projeto também contém uma implementação alternativa baseada em Monaco, Yjs e
+WebRTC em [src/main.ts](./src/main.ts). A página usada atualmente pelo Vite é
+[index.html](./index.html), que carrega
+[src/collaboration.ts](./src/collaboration.ts) para a colaboração do editor
+principal.
 
 ## Índice
 
@@ -331,7 +331,7 @@ usa:
 
 ### Identificação da sala
 
-Ao abrir a implementação de `src/main.ts`, o código procura `room` na URL:
+Ao abrir a página principal, `src/collaboration.ts` procura `room` na URL:
 
 ```text
 ?room=ABC123
@@ -346,27 +346,164 @@ console-room-ABC123
 
 Duas pessoas que usam o mesmo código entram no mesmo documento Yjs.
 
-### Sincronização
+### Como a sincronização funciona hoje
 
-O `WebrtcProvider` conecta os participantes à mesma sala. O `MonacoBinding`
-mantém o conteúdo do modelo do Monaco e o `Y.Text` sincronizados. Alterações
-feitas por um participante são propagadas para os demais participantes da
-mesma sala.
+A implementação atualmente usada pela página principal separa o fluxo em três
+responsabilidades:
 
-O status visual muda entre `Sincronizado` e `Offline` conforme o provider
-informa seu estado de conexão.
+```text
+Firebase Authentication
+  └── identifica anonimamente cada navegador
 
-### Convite e chat
+Firebase Realtime Database
+  └── controla a sala e os participantes online
 
-Ainda nessa implementação, o código:
+Yjs + y-webrtc
+  └── sincroniza o conteúdo dos arquivos
+```
 
-- abre um diálogo para copiar o código da sala;
-- permite informar outro código de sala;
-- adiciona mensagens visualmente ao chat local.
+O Firebase **não sincroniza o código**. Ele apenas controla quem entrou na
+sala. O código é mantido em estruturas Yjs e transportado entre os navegadores
+pelo `WebrtcProvider`.
 
-O chat não possui backend nem persistência. A mensagem é adicionada apenas ao
-DOM da aba atual. O convite também não envia e-mail: ele apenas facilita o
-compartilhamento do código da sala.
+#### 1. A página escolhe a sala
+
+O código lê `?room=ABC123`. Se o parâmetro não existir, gera um código e
+atualiza a URL com `history.replaceState`. O nome usado pelo Yjs é:
+
+```text
+console-room-ABC123
+```
+
+Qualquer navegador que abra exatamente esse mesmo código usa a mesma sala Yjs.
+Um código diferente cria outro documento e, portanto, outra sala.
+
+#### 2. O navegador recebe uma identidade anônima
+
+`signInAnonymously()` cria ou recupera um identificador do Firebase para aquele
+navegador. O usuário não precisa informar e-mail, senha ou criar uma conta.
+Esse identificador é usado para separar o arquivo pessoal de cada participante.
+
+O nome exibido, como `Usuario` ou `Joao`, é apenas um dado de presença salvo
+junto ao identificador anônimo. Ele não é uma credencial de autenticação.
+
+#### 3. A entrada na sala é controlada por uma transação
+
+O Realtime Database mantém os participantes em:
+
+```text
+rooms/ABC123/members/<firebase-user-id>
+```
+
+Ao entrar, `runTransaction()` verifica a quantidade atual de participantes.
+Para o beta, a transação recusa um terceiro usuário. Depois da entrada, o
+`onDisconnect()` agenda a remoção automática do participante quando a conexão
+for encerrada.
+
+Um listener `onValue()` acompanha `members` e atualiza:
+
+- o contador `Usuários (1/2)` ou `Usuários (2/2)`;
+- a lista de nomes no painel de usuários;
+- as abas dos arquivos disponíveis.
+
+#### 4. Cada participante possui um `Y.Text` próprio
+
+Os arquivos não são salvos no Firebase. Para evitar conflitos entre estruturas
+aninhadas, cada arquivo é obtido diretamente do documento Yjs com um nome
+determinístico:
+
+```ts
+ydoc.getText(`console-file-${fileKey}`)
+```
+
+O `fileKey` de um participante é:
+
+```text
+personal:<firebase-user-id>
+```
+
+Assim, os dois navegadores obtêm exatamente o mesmo `Y.Text` quando acessam o
+arquivo de uma mesma pessoa.
+
+O nome mostrado depende de quem está olhando:
+
+| Participante atual | Arquivo próprio | Arquivo do outro |
+| --- | --- | --- |
+| Criador `Usuario` | `main.c` | `Joao.c` |
+| Convidado `Joao` | `main.c` | `Usuario.c` |
+
+`main.c` é apenas o rótulo visual do arquivo próprio. Internamente, o arquivo
+continua identificado pelo `firebase-user-id`, então não existe colisão entre
+os dois `main.c`.
+
+#### 5. O editor troca de arquivo
+
+Quando uma aba é selecionada, o código:
+
+1. encontra o `Y.Text` correspondente;
+2. remove o observador do arquivo anterior;
+3. registra um observador no novo arquivo;
+4. copia o conteúdo do `Y.Text` para o `textarea`;
+5. passa a enviar as próximas edições para esse `Y.Text`.
+
+A alteração local é comparada com o último valor sincronizado. O código calcula
+o menor trecho comum no início e no fim e envia ao Yjs apenas a operação
+necessária de `delete` e/ou `insert`. O documento não é apagado e reinserido
+inteiro a cada tecla. Isso permite que o Yjs combine alterações próximas ou
+simultâneas usando seu algoritmo CRDT.
+
+Quando o Yjs recebe uma alteração remota, o observador aplica o `delta`
+incremental ao `textarea` sem gerar uma nova alteração local. A flag
+`applyingRemoteChange` evita um ciclo de atualização:
+
+```text
+Yjs remoto → textarea → evento input → Yjs
+                         X
+```
+
+#### 6. Inicialização do conteúdo
+
+O `WebrtcProvider` precisa sincronizar antes de o participante convidado
+inicializar seu arquivo. Por isso:
+
+- o criador usa o conteúdo inicial que já estava no editor;
+- o convidado espera o provider sincronizar;
+- se o arquivo pessoal do convidado ainda estiver vazio, ele recebe o
+  `Hello World` inicial;
+- se o arquivo já existir no Yjs, seu conteúdo é preservado;
+- depois disso, o arquivo selecionado passa a aceitar edições.
+
+Essa ordem evita que o conteúdo local de um navegador sobrescreva o conteúdo
+que já existe na sala.
+
+#### 7. Como os navegadores se encontram
+
+O `WebrtcProvider` usa a variável `VITE_YJS_SIGNALING_URL`, com
+`wss://signaling.yjs.dev` como padrão, para descobrir outros navegadores na
+mesma sala. O servidor de sinalização troca apenas as informações necessárias
+para estabelecer a conexão; ele não é o banco de dados dos arquivos.
+
+Depois da descoberta, o WebRTC transporta as atualizações Yjs entre os
+navegadores. Portanto, todos precisam:
+
+- usar o mesmo código `room`;
+- conseguir conectar ao servidor WebSocket de sinalização;
+- conseguir estabelecer a conexão WebRTC;
+- manter a página aberta para continuar participando.
+
+O evento `synced` libera a inicialização do editor convidado. O evento `status`
+atualiza a mensagem de colaboração quando a conexão fica offline.
+
+### Convite e lista de usuários
+
+O botão `+` copia a URL com o código da sala. O botão **Usuários** abre a lista
+de participantes atualmente registrados no Realtime Database. A lista é
+presencial, não um histórico: quando o `onDisconnect()` remove um participante,
+o contador e as abas são atualizados nos navegadores restantes.
+
+O projeto ainda não possui chat persistente. O código de chat que existe na
+implementação alternativa de `src/main.ts` adiciona mensagens somente ao DOM
+local e não faz parte da sincronização do editor principal.
 
 ## Como configurar o Firebase
 
@@ -640,11 +777,15 @@ O comando executa `tsc -b` e depois `vite build`. A saída é gravada em
 
 Estas limitações fazem parte do estado atual do projeto:
 
-1. Não há autenticação, contas ou autorização.
-2. O nome do usuário é apenas uma preferência local.
-3. O chat da implementação em `src/main.ts` não é persistente.
-4. O convite não envia e-mail nem cria permissões.
-5. A interface principal de `index.html` não usa Monaco nem Yjs.
+1. A autenticação atual é anônima; ainda não há contas permanentes ou perfis.
+2. O nome exibido é uma preferência local sincronizada apenas como presença da
+   sala; ele não é uma credencial.
+3. O chat da implementação alternativa em `src/main.ts` não é persistente e
+   não faz parte da interface principal.
+4. O convite não envia e-mail nem cria permissões permanentes.
+5. A interface principal usa um `textarea` sincronizado diretamente com Yjs;
+   Monaco/Yjs continua disponível apenas na implementação alternativa de
+   `src/main.ts`.
 6. O botão `Stop` não aborta uma execução já enviada ao Judge0.
 7. A execução depende de um serviço Judge0 externo.
 8. Não há histórico de execuções ou salvamento em banco de dados.
@@ -653,8 +794,12 @@ Estas limitações fazem parte do estado atual do projeto:
 10. O destaque de sintaxe é baseado em regex, não em um parser de C.
 11. O endpoint `/api/run` não possui autenticação, rate limit ou cota por
     usuário.
-12. A disponibilidade da colaboração WebRTC depende dos servidores públicos de
-    sinalização e da conectividade dos navegadores.
+12. A disponibilidade da colaboração WebRTC depende do servidor configurado em
+    `VITE_YJS_SIGNALING_URL`, de WebRTC e da conectividade dos navegadores.
+13. Os documentos Yjs não são persistidos no Firebase; se todos os
+    participantes saírem, o conteúdo pode ser perdido.
+14. A sala e a presença ficam no Firebase, mas o código não fica disponível
+    para recuperação histórica.
 
 ## Segurança e produção
 

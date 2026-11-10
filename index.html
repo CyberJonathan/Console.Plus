@@ -150,7 +150,7 @@
         background: transparent;
         text-align: left;
         margin-left: 0;
-        transform: translateX(-25px);
+        transform: translateX(-15px);
       }
 
       .user-identity:hover {
@@ -498,11 +498,16 @@
       }
 
       .tab.typing .tab-dot {
-        animation: typing-wave 900ms ease-in-out infinite;
+        animation: typing-wave 750ms ease-in-out infinite;
+        box-shadow: 0 0 4px currentColor;
       }
 
       .tab-dot-blue {
         background: var(--blue);
+      }
+
+      .tab.typing .tab-dot-blue {
+        color: var(--blue);
       }
 
       .tab.typing .tab-dot-blue {
@@ -514,11 +519,19 @@
       }
 
       .tab.typing .tab-dot-red {
+        color: var(--red);
+      }
+
+      .tab.typing .tab-dot-red {
         animation-delay: 140ms;
       }
 
       .tab-dot-yellow {
         background: var(--yellow);
+      }
+
+      .tab.typing .tab-dot-yellow {
+        color: var(--yellow);
       }
 
       .tab.typing .tab-dot-yellow {
@@ -529,12 +542,12 @@
         0%,
         60%,
         100% {
-          transform: translateY(0);
-          opacity: 0.55;
+          transform: translateY(0) scale(1);
+          opacity: 0.7;
         }
 
         30% {
-          transform: translateY(-3px);
+          transform: translateY(-5px) scale(1.25);
           opacity: 1;
         }
       }

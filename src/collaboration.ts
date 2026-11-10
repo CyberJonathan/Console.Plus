@@ -333,6 +333,7 @@ let isRoomOwner = false;
 let roomMembers: Record<string, unknown> = getCachedRoomMembers(roomCode);
 let lastEditorValue = "";
 let typingIdleTimeout: number | undefined;
+let localTyping = false;
 const cachedUserId = localStorage.getItem(`console-room-user:${roomCode}`);
 let roomOwnerId = localStorage.getItem(`console-room-owner:${roomCode}`);
 if (cachedUserId) {
@@ -371,12 +372,19 @@ function updateTypingIndicators(): void {
       ...(isTyping ? ["Um participante está editando este arquivo"] : []),
     ].join(" · ");
   });
+  if (localTyping && activeFileKey === "main.c") {
+    tabs!.querySelector(".tab.active")?.classList.add("typing");
+  }
 }
 
 function stopLocalTyping(): void {
   window.clearTimeout(typingIdleTimeout);
   typingIdleTimeout = undefined;
-  provider.awareness.setLocalStateField("consolePlusTyping", null);
+  localTyping = false;
+  if (activeFileKey.startsWith("personal:")) {
+    provider.awareness.setLocalStateField("consolePlusTyping", null);
+  }
+  updateTypingIndicators();
 }
 
 function observeActiveFile(text: Y.Text): void {
@@ -443,11 +451,17 @@ function finishCollaborationSetup(): void {
 }
 
 editor!.addEventListener("input", () => {
-  if (applyingRemoteChange || !collaborationReady || !activeText) return;
-  const nextValue = editor!.value;
-  updateYTextIncrementally(activeText, lastEditorValue, nextValue);
-  lastEditorValue = nextValue;
-  provider.awareness.setLocalStateField("consolePlusTyping", activeFileKey);
+  if (applyingRemoteChange) return;
+  if (collaborationReady && activeText) {
+    const nextValue = editor!.value;
+    updateYTextIncrementally(activeText, lastEditorValue, nextValue);
+    lastEditorValue = nextValue;
+    if (activeFileKey.startsWith("personal:")) {
+      provider.awareness.setLocalStateField("consolePlusTyping", activeFileKey);
+    }
+  }
+  localTyping = true;
+  updateTypingIndicators();
   window.clearTimeout(typingIdleTimeout);
   typingIdleTimeout = window.setTimeout(stopLocalTyping, 1200);
 });

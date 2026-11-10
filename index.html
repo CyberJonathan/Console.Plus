@@ -1448,7 +1448,17 @@ int main() {
               sendEof,
             }),
           });
-          const result = await response.json();
+          const responseText = await response.text();
+          let result;
+          try {
+            result = responseText ? JSON.parse(responseText) : {};
+          } catch {
+            const preview = responseText.replace(/\s+/g, " ").trim().slice(0, 240);
+            const status = `${response.status}${response.statusText ? ` ${response.statusText}` : ""}`;
+            throw new Error(
+              `A API retornou uma resposta inválida (HTTP ${status}).${preview ? ` Resposta: ${preview}` : ""}`,
+            );
+          }
           if (executionSession !== session) return;
           if (!response.ok) {
             const details = result.details ? ` ${result.details}` : "";

@@ -343,7 +343,25 @@ export async function executeJudge0(
       );
     }
 
-    const result = await submission.json() as Record<string, unknown>;
+    const responseText = await submission.text();
+    let parsedResult: unknown;
+    try {
+      parsedResult = JSON.parse(responseText);
+    } catch {
+      throw new Judge0RequestError(
+        "O Judge0 devolveu uma resposta que não está em formato JSON.",
+        502,
+        responseText.trim().slice(0, 1_000) || "A resposta do Judge0 estava vazia.",
+      );
+    }
+    if (!parsedResult || typeof parsedResult !== "object" || Array.isArray(parsedResult)) {
+      throw new Judge0RequestError(
+        "O Judge0 devolveu uma resposta inválida.",
+        502,
+        "Esperava-se um objeto JSON com o resultado da execução.",
+      );
+    }
+    const result = parsedResult as Record<string, unknown>;
     decodeBase64Fields(result);
     const stderr = typeof result.stderr === "string" ? result.stderr : "";
     const markerText = `${INPUT_MARKER_PREFIX}${marker}__`;

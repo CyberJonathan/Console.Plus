@@ -3,7 +3,7 @@
     "rooms": {
       "$roomId": {
         ".read": "auth != null",
-        ".write": "auth != null && (!data.exists() || data.child('members').child(auth.uid).exists() || (newData.child('members').hasChildren() && newData.child('members').numChildren() <= 2))",
+        ".write": "auth != null && (!data.exists() || data.child('members').child(auth.uid).exists() || newData.child('members').child(auth.uid).exists())",
         "members": {
           "$uid": {
             ".write": "auth != null && $uid === auth.uid"

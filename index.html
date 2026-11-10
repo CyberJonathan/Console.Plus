@@ -200,6 +200,138 @@
         color: var(--bg);
       }
 
+      .room-dialog {
+        width: min(390px, calc(100vw - 32px));
+        padding: 18px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--panel-2);
+        color: var(--text);
+      }
+
+      .room-dialog::backdrop {
+        background: rgba(0, 0, 0, 0.72);
+      }
+
+      .room-dialog h2 {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 500;
+      }
+
+      .room-dialog-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .room-dialog .room-dialog-close {
+        display: grid;
+        width: 28px;
+        min-height: 28px;
+        flex: 0 0 28px;
+        padding: 0;
+        place-items: center;
+        border-color: transparent;
+        background: transparent;
+        color: var(--text-dim);
+      }
+
+      .room-dialog-close:hover {
+        border-color: var(--border);
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      .close-icon {
+        width: 16px;
+        height: 16px;
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-width: 1.8;
+      }
+
+      .room-dialog label {
+        display: block;
+        margin: 14px 0 7px;
+        color: var(--text-dim);
+        font-size: 11px;
+      }
+
+      .room-code-row {
+        position: relative;
+      }
+
+      .room-dialog input {
+        width: 100%;
+        min-width: 0;
+        height: 34px;
+        padding: 0 9px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg);
+        color: var(--text);
+        font: 12px var(--font);
+      }
+
+      .room-code-row input {
+        height: 48px;
+        padding: 0 48px 0 14px;
+        border-color: var(--emerald);
+        background: var(--bg);
+        box-shadow: inset 0 0 0 1px rgba(0, 255, 0, 0.12), 0 0 18px rgba(0, 255, 0, 0.08);
+        color: var(--emerald);
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: 4px;
+        text-align: center;
+      }
+
+      .room-dialog button {
+        min-height: 32px;
+        padding: 0 11px;
+        font-size: 11px;
+      }
+
+      .room-code-row .room-code-copy {
+        position: absolute;
+        top: 50%;
+        right: 7px;
+        display: grid;
+        width: 32px;
+        min-height: 32px;
+        padding: 0;
+        place-items: center;
+        transform: translateY(-50%);
+      }
+
+      .room-code-copy .copy-icon {
+        width: 17px;
+        height: 17px;
+      }
+
+      #joinRoomButton {
+        width: 100%;
+        margin-top: 10px;
+        border-color: var(--emerald);
+        background: var(--emerald);
+        color: var(--bg);
+      }
+
+      #joinRoomButton:hover {
+        background: #04df0f;
+      }
+
+      .room-dialog-feedback {
+        min-height: 16px;
+        margin: 8px 0 0;
+        color: var(--err);
+        font-size: 10px;
+      }
+
       .members-panel {
         position: fixed;
         z-index: 10;
@@ -403,13 +535,24 @@
       }
 
       #copyButton {
-        width: 30px;
+        width: auto;
         min-width: 35px;
-        padding: 0;
+        gap: 5px;
+        padding: 0 7px;
         display: inline-flex; 
         align-items: center;   
         justify-content: center; 
-        transform: scaleX(-1);
+      }
+
+      #copyButton .copy-icon {
+        width: 15px;
+        height: 15px;
+      }
+
+      #copyButton .shortcut {
+        margin-left: 0;
+        color: var(--text-dim);
+        white-space: nowrap;
       }
 
       .copy-icon {
@@ -642,6 +785,7 @@
 
       .stdin-form {
         display: flex;
+        align-items: center;
         gap: 8px;
         padding: 8px 12px 12px;
         border-top: 1px solid var(--border);
@@ -661,6 +805,14 @@
         background: var(--panel-2);
         color: var(--text);
         font: 12px var(--font);
+      }
+
+      .stdin-command {
+        flex: 0 0 auto;
+        color: var(--emerald);
+        font: 11px var(--font);
+        font-weight: 700;
+        text-transform: uppercase;
       }
 
       .stdin-form button {
@@ -884,8 +1036,8 @@
           <span id="userName">Usuario</span>
         </button>
         <div class="topbar-actions">
-          <button id="usersButton" type="button">Usuários (0/2)</button>
           <button id="inviteUsersButton" type="button" aria-label="Adicionar usuário" title="Copiar convite da sala">+</button>
+          <button id="usersButton" type="button">Usuários (0/8)</button>
         </div>
       </header>
 
@@ -910,11 +1062,12 @@
           <div class="console-toolbar">
             <button id="runButton" type="button">Run <span class="shortcut">Ctrl+Enter</span></button>
             <button id="stopButton" type="button">Stop <span class="shortcut">Esc</span></button>
-            <button id="copyButton" type="button" aria-label="Copiar código" title="Copiar código">
+            <button id="copyButton" type="button" aria-label="Copiar código completo" title="Copiar código completo (Ctrl+Shift+C). Ctrl+C e Ctrl+V copiam/colam a seleção no editor.">
               <svg class="copy-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <rect x="8" y="8" width="11" height="11" rx="1"></rect>
                 <path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"></path>
               </svg>
+              <span class="shortcut">Ctrl+Shift+C</span>
             </button>
           </div>
           <div class="editor-shell">
@@ -939,15 +1092,16 @@ int main() {
           </div>
           <pre id="resultOutput" class="result-output waiting">&gt; aguardando execução <span class="cursor">_</span></pre>
           <form id="stdinForm" class="stdin-form" hidden>
-            <input id="stdinInput" type="text" placeholder="Digite os valores do scanf, separados por espaço" autocomplete="off" />
-            <button type="submit">Executar</button>
+            <span id="stdinCommand" class="stdin-command" aria-hidden="true">scanf</span>
+            <input id="stdinInput" type="text" aria-label="Entrada para scanf" placeholder="Digite os valores separados por espaço" autocomplete="off" />
+            <button type="submit">></button>
           </form>
         </section>
       </section>
       <!-- Barra de status -->
       <footer class="statusbar">
-        <span>Ln 1, Col 1</span>
-        <span class="statusbar-right"><span>C</span><span>0 ms</span></span>
+        <span id="cursorPosition">Ln 1, Col 1</span>
+        <span class="statusbar-right"><span>C</span><span id="executionTime" title="Tempo de execução reportado pelo Judge0; se indisponível, mostra o tempo total da requisição.">0 ms</span></span>
       </footer>
     </main>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -955,6 +1109,32 @@ int main() {
       <h2 id="membersTitle">Usuários online</h2>
       <ul id="membersList" class="members-list"></ul>
     </section>
+    <dialog id="roomDialog" class="room-dialog" aria-labelledby="roomDialogTitle">
+      <div class="room-dialog-header">
+        <h2 id="roomDialogTitle">Compartilhar ou entrar em uma sala</h2>
+        <button id="closeRoomDialog" class="room-dialog-close" type="button" aria-label="Fechar" title="Fechar">
+          <svg class="close-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18"></path>
+          </svg>
+        </button>
+      </div>
+      <label for="currentRoomCode">Código da sua sala</label>
+      <div class="room-code-row">
+        <input id="currentRoomCode" type="text" readonly />
+        <button id="copyRoomCodeButton" class="room-code-copy" type="button" aria-label="Copiar código da sala" title="Copiar código da sala">
+          <svg class="copy-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="8" y="8" width="11" height="11" rx="1"></rect>
+            <path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"></path>
+          </svg>
+        </button>
+      </div>
+      <form id="joinRoomForm">
+        <label for="otherRoomCode">Entrar na sala de outra pessoa</label>
+        <input id="otherRoomCode" type="text" maxlength="12" autocomplete="off" placeholder="Digite o código da sala" />
+        <p id="roomDialogFeedback" class="room-dialog-feedback" aria-live="polite"></p>
+        <button id="joinRoomButton" type="submit">Entrar</button>
+      </form>
+    </dialog>
     <div id="nameModal" class="name-modal" role="presentation" hidden>
       <form class="name-dialog" id="nameForm" role="dialog" aria-modal="true" aria-labelledby="nameDialogTitle">
         <h2 id="nameDialogTitle">Identificação do usuário</h2>
@@ -977,6 +1157,9 @@ int main() {
       const executionStatus = document.querySelector("#executionStatus");
       const stdinForm = document.querySelector("#stdinForm");
       const stdinInput = document.querySelector("#stdinInput");
+      const runButton = document.querySelector("#runButton");
+      const stopButton = document.querySelector("#stopButton");
+      const copyButton = document.querySelector("#copyButton");
       const userName = document.querySelector("#userName");
       const userAvatar = document.querySelector(".user-avatar");
       const firstPresenceIcon = document.querySelector(".presence-icon");
@@ -1064,6 +1247,15 @@ int main() {
           (_, index) => index + 1,
         ).join("\n");
         codeHighlight.innerHTML = highlightCode(editor.value);
+        updateCursorPosition();
+      }
+
+      function updateCursorPosition() {
+        const textBeforeCursor = editor.value.slice(0, editor.selectionStart);
+        const lineNumber = textBeforeCursor.split("\n").length;
+        const columnNumber = textBeforeCursor.length - textBeforeCursor.lastIndexOf("\n");
+        document.querySelector("#cursorPosition").textContent =
+          `Ln ${lineNumber}, Col ${columnNumber}`;
       }
 
       function setOutput(message, state) {
@@ -1182,6 +1374,9 @@ int main() {
         localStorage.setItem("console-source-code", editor.value);
         updateLineNumbers();
       });
+      editor.addEventListener("click", updateCursorPosition);
+      editor.addEventListener("keyup", updateCursorPosition);
+      editor.addEventListener("select", updateCursorPosition);
       editor.addEventListener("scroll", () => {
         lineNumbers.scrollTop = editor.scrollTop;
         codeHighlight.scrollTop = editor.scrollTop;
@@ -1193,15 +1388,22 @@ int main() {
         const start = editor.selectionStart;
         const end = editor.selectionEnd;
         editor.setRangeText("  ", start, end, "end");
-        updateLineNumbers();
+        editor.dispatchEvent(new Event("input", { bubbles: true }));
       });
 
-      document.querySelector("#copyButton").addEventListener("click", async () => {
-        await navigator.clipboard.writeText(editor.value);
-        showToast("Código copiado.");
-      });
+      async function copyEditorCode() {
+        try {
+          await navigator.clipboard.writeText(editor.value);
+          showToast("Código copiado.");
+        } catch (error) {
+          console.error("Não foi possível copiar o código:", error);
+          showToast("Não foi possível acessar a área de transferência.");
+        }
+      }
 
-      document.querySelector("#runButton").addEventListener("click", () => {
+      copyButton.addEventListener("click", () => void copyEditorCode());
+
+      runButton.addEventListener("click", () => {
         window.clearTimeout(runTimer);
         setStdinVisible(/\bscanf\s*\(/.test(editor.value));
         if (/\bscanf\s*\(/.test(editor.value)) {
@@ -1218,7 +1420,7 @@ int main() {
         executeWithJudge0(stdinInput.value);
       });
 
-      document.querySelector("#stopButton").addEventListener("click", () => {
+      stopButton.addEventListener("click", () => {
         window.clearTimeout(runTimer);
         setStdinVisible(false);
         setExecutionStatus("Execução interrompida", "error");
@@ -1256,7 +1458,27 @@ int main() {
         showToast("Nome atualizado.");
       });
       document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" && !nameModal.hidden) closeNameModal();
+        if (event.key === "Escape" && !nameModal.hidden) {
+          closeNameModal();
+          return;
+        }
+        if (event.key === "Escape" && !document.querySelector("#roomDialog").open) {
+          stopButton.click();
+          return;
+        }
+        if (document.querySelector("#roomDialog").open || !nameModal.hidden) return;
+
+        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+          event.preventDefault();
+          runButton.click();
+        } else if (
+          (event.ctrlKey || event.metaKey) &&
+          event.shiftKey &&
+          event.key.toLowerCase() === "c"
+        ) {
+          event.preventDefault();
+          void copyEditorCode();
+        }
       });
 
       const savedCode = localStorage.getItem("console-source-code");

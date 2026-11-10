@@ -364,7 +364,7 @@ Yjs + y-webrtc
 
 O Firebase **não sincroniza o código**. Ele apenas controla quem entrou na
 sala. O código é mantido em estruturas Yjs e transportado entre os navegadores
-pelo `WebrtcProvider`.
+pelo `WebrtcProvider`. O limite beta atual é de oito participantes por sala.
 
 #### 1. A página escolhe a sala
 
@@ -396,13 +396,13 @@ rooms/ABC123/members/<firebase-user-id>
 ```
 
 Ao entrar, `runTransaction()` verifica a quantidade atual de participantes.
-Para o beta, a transação recusa um terceiro usuário. Depois da entrada, o
+Para o beta, a transação recusa uma nona pessoa. Depois da entrada, o
 `onDisconnect()` agenda a remoção automática do participante quando a conexão
 for encerrada.
 
 Um listener `onValue()` acompanha `members` e atualiza:
 
-- o contador `Usuários (1/2)` ou `Usuários (2/2)`;
+- o contador `Usuários (1/8)` até `Usuários (8/8)`;
 - a lista de nomes no painel de usuários;
 - as abas dos arquivos disponíveis.
 
@@ -461,6 +461,12 @@ Yjs remoto → textarea → evento input → Yjs
                          X
 ```
 
+O observador mantém o texto do editor e do Yjs alinhados. Atualizações remotas
+preservam a posição atual do cursor tanto quanto possível. A posição exibida na
+barra inferior é calculada a partir de `selectionStart` do `textarea`: `Ln` é
+a linha e `Col` é a coluna do cursor, ambas começando em 1. Ela é recalculada
+ao digitar, clicar no editor, mover o cursor pelo teclado ou alterar a seleção.
+
 #### 6. Inicialização do conteúdo
 
 O `WebrtcProvider` precisa sincronizar antes de o participante convidado
@@ -496,10 +502,70 @@ atualiza a mensagem de colaboração quando a conexão fica offline.
 
 ### Convite e lista de usuários
 
-O botão `+` copia a URL com o código da sala. O botão **Usuários** abre a lista
-de participantes atualmente registrados no Realtime Database. A lista é
-presencial, não um histórico: quando o `onDisconnect()` remove um participante,
-o contador e as abas são atualizados nos navegadores restantes.
+O botão verde `+` abre um popup com o código da sala em destaque e um ícone de
+cópia dentro da própria barra do código. O botão **X** fecha o popup, e o
+formulário permite informar o código de outra sala. O botão **Entrar** troca a
+URL para a sala digitada; o Firebase então valida a entrada e aplica o limite
+de oito participantes. O botão **Usuários** abre a lista de participantes
+atualmente registrados no Realtime Database. A lista é presença ao vivo, não
+um histórico: quando o `onDisconnect()` remove um participante, o contador e as
+abas são atualizados nos navegadores restantes.
+
+### Atalhos e entrada do `scanf`
+
+- `Ctrl+Enter` (ou `Cmd+Enter` no macOS) aciona **Run**.
+- `Esc` aciona **Stop**; com um modal aberto, primeiro fecha o modal.
+- `Ctrl+C` e `Ctrl+V` (ou `Cmd+C` e `Cmd+V` no macOS) copiam e colam usando a
+  seleção nativa do editor. O botão com ícone de cópia continua copiando o
+  código completo.
+
+Quando o código contém uma chamada a `scanf`, a barra de entrada do resultado
+mostra o rótulo `SCANF` ao lado do campo para deixar claro qual comando está
+aguardando os dados.
+
+### Trabalho offline e recuperação local
+
+O documento Yjs também é espelhado no IndexedDB do navegador pelo
+`y-indexeddb`. Isso permite manter as alterações neste dispositivo durante uma
+queda temporária de rede e restaurar o estado local ao recarregar a sala. Ao
+reconectar, o provider WebRTC sincroniza as atualizações Yjs com o outro
+participante.
+
+Esse cache é local ao perfil/navegador e à sala. Ele não é enviado ao Firebase
+nem é um backup de servidor: limpar os dados do site ou usar outro dispositivo
+remove o acesso a essa cópia. Se ambos os usuários estiverem offline ao mesmo
+tempo, as cópias locais só poderão se reconciliar quando voltarem a se conectar.
+O indicador `ms` na barra inferior mostra o tempo de CPU reportado pelo Judge0
+quando disponível; caso contrário, mostra o tempo total da requisição,
+incluindo rede e espera pelo serviço.
+
+### Posicionamento dos botões do topo
+
+Os estilos da barra ficam no `<style>` de [`index.html`](./index.html):
+
+- `.topbar` controla o layout e o espaçamento geral da barra;
+- `.user-identity` controla a posição da identidade do usuário;
+- `.topbar-actions` controla os botões `Usuários` e `+`;
+- `gap` define a distância entre eles;
+- `margin-left: auto` empurra o grupo para o lado direito;
+- `transform: translateX(...)` desloca visualmente um grupo sem alterar a
+  ordem do layout.
+
+A ordem normal dos elementos vem do HTML: `Usuários` aparece antes de `+`.
+Para inverter a posição, pode-se trocar a ordem dos dois botões no HTML ou
+usar `order` no CSS, por exemplo:
+
+```css
+#usersButton {
+  order: 2;
+}
+
+#inviteUsersButton {
+  order: 1;
+}
+```
+
+Para aproximar ou afastar os botões, ajuste `gap` em `.topbar-actions`.
 
 O projeto ainda não possui chat persistente. O código de chat que existe na
 implementação alternativa de `src/main.ts` adiciona mensagens somente ao DOM
@@ -539,8 +605,19 @@ podem ser selecionados e editados por qualquer participante da sala.
    [`firebase.database.rules.json`](./firebase.database.rules.json) em
    **Realtime Database > Rules**.
 
-As regras limitam cada sala a dois participantes. Elas não são uma solução de
-autorização permanente para a versão futura com mais usuários.
+Se o Firebase já estava configurado, publique as regras atualizadas do arquivo.
+As regras usam apenas operações suportadas pelo Realtime Database. O limite de
+oito é verificado pela transação de entrada no cliente; as regras do RTDB não
+contam filhos de um objeto, portanto não aplicam esse limite contra clientes
+modificados manualmente.
+
+O cliente limita cada sala a oito participantes usando uma transação atômica no
+Realtime Database. Isso evita entradas acima do limite pelo aplicativo normal,
+incluindo corridas entre usuários simultâneos, mas não é uma barreira de
+segurança contra clientes alterados. Para impor o limite no servidor, será
+necessário mover a admissão para uma Cloud Function/servidor confiável. As
+regras atuais não são uma solução de autorização permanente para a versão
+futura com mais usuários.
 
 ### 2. Configurar o ambiente local
 
@@ -564,7 +641,7 @@ VITE_FIREBASE_MESSAGING_SENDER_ID
 VITE_FIREBASE_APP_ID
 ```
 
-### 3. Testar duas pessoas
+### 3. Testar uma sala com até oito pessoas
 
 Execute:
 
@@ -573,13 +650,13 @@ npm run dev
 ```
 
 Abra a URL exibida pelo Vite. O aplicativo gera uma sala e coloca o código na
-URL, por exemplo `?room=ABC123`. Clique em **Usuários (1/2)** para copiar o
-convite e abra a URL em outro navegador ou dispositivo. A segunda pessoa entra
-anonimamente e as alterações no editor são sincronizadas pelo Yjs.
+URL, por exemplo `?room=ABC123`. Compartilhe essa URL com até sete pessoas em
+outros navegadores ou dispositivos. Cada pessoa entra anonimamente, e as
+alterações nos arquivos são sincronizadas pelo Yjs.
 
-Uma terceira pessoa recebe uma mensagem informando que a sala está cheia.
-Neste beta, o código da sala funciona como convite; não existe autenticação
-visível para o usuário.
+Uma nona pessoa recebe uma mensagem informando que a sala está cheia ao entrar
+pelo aplicativo. Neste beta, o código da sala funciona como convite; não existe
+autenticação visível para o usuário.
 
 ### 4. Publicar na Vercel
 
@@ -641,6 +718,17 @@ Troque `https://` por `wss://`, salve para **Production** e **Preview** e faça
 um novo deploy da Vercel. O servidor de sinalização precisa permanecer como
 Web Service; funções serverless não mantêm o WebSocket persistente necessário
 pelo `y-webrtc`.
+
+Para oito participantes, não é necessário alterar a configuração do serviço
+Render: o servidor de sinalização continua apenas coordenando a descoberta
+entre peers. O tráfego de código é enviado diretamente por WebRTC. Com oito
+participantes, porém, cada navegador pode manter até sete conexões peer a peer
+(28 conexões no total na sala), então a rede dos participantes pode afetar a
+estabilidade. O plano Free do Render pode suspender o serviço após inatividade;
+para testes isso pode ser suficiente, mas, se a sinalização precisar estar
+sempre disponível, considere um plano pago. O número de participantes também
+aumenta o uso do Realtime Database para presença; monitore o uso e o faturamento
+no Firebase, sem necessidade de mudar as regras além de publicar o novo limite.
 
 ## Backend e API
 
@@ -831,10 +919,11 @@ Estas limitações fazem parte do estado atual do projeto:
     usuário.
 12. A disponibilidade da colaboração WebRTC depende do servidor configurado em
     `VITE_YJS_SIGNALING_URL`, de WebRTC e da conectividade dos navegadores.
-13. Os documentos Yjs não são persistidos no Firebase; se todos os
-    participantes saírem, o conteúdo pode ser perdido.
-14. A sala e a presença ficam no Firebase, mas o código não fica disponível
-    para recuperação histórica.
+13. Os documentos Yjs são mantidos em cache IndexedDB nos dispositivos que
+    acessaram a sala, mas não são persistidos em um banco/servidor central.
+    Apagar os dados do navegador remove essa cópia local.
+14. A sala e a presença ficam no Firebase, mas o Firebase não mantém histórico
+    ou backup central do código.
 
 ## Segurança e produção
 

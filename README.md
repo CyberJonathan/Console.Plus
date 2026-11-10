@@ -467,6 +467,13 @@ barra inferior é calculada a partir de `selectionStart` do `textarea`: `Ln` é
 a linha e `Col` é a coluna do cursor, ambas começando em 1. Ela é recalculada
 ao digitar, clicar no editor, mover o cursor pelo teclado ou alterar a seleção.
 
+Ao editar um arquivo, o navegador publica temporariamente o identificador desse
+arquivo pelo estado de awareness do Yjs. As três bolinhas da aba correspondente
+se movem em sequência para todos os participantes. A animação para após 1,2
+segundos sem entrada no editor ou quando o editor perde o foco. Esse indicador
+é transitório, não altera o conteúdo nem é salvo no Firebase/IndexedDB; quem
+prefere movimento reduzido também não verá a animação.
+
 #### 6. Inicialização do conteúdo
 
 O `WebrtcProvider` precisa sincronizar antes de o participante convidado
@@ -510,6 +517,10 @@ de oito participantes. O botão **Usuários** abre a lista de participantes
 atualmente registrados no Realtime Database. A lista é presença ao vivo, não
 um histórico: quando o `onDisconnect()` remove um participante, o contador e as
 abas são atualizados nos navegadores restantes.
+
+O campo para entrar em outra sala converte letras minúsculas para maiúsculas
+enquanto o usuário digita ou cola o código. Os códigos existentes continuam
+aceitando números, pois os convites já gerados usam letras e números.
 
 ### Atalhos e entrada do `scanf`
 
@@ -566,6 +577,22 @@ usar `order` no CSS, por exemplo:
 ```
 
 Para aproximar ou afastar os botões, ajuste `gap` em `.topbar-actions`.
+
+No celular, o nome permanece visível ao lado do avatar e ambos formam o botão
+para abrir a identificação do usuário. O arquivo do dono da sala recebe uma
+linha amarela na borda superior da aba; essa identificação é compartilhada com
+todos os participantes.
+
+### Posição do código da sala no popup
+
+O campo com o código atual é o `#currentRoomCode`, dentro de `.room-code-row`,
+no `<dialog id="roomDialog">` em `index.html`. A posição dele no popup depende
+principalmente da ordem dos elementos HTML: cabeçalho, label do código, barra
+do código e formulário para entrar em outra sala. Para movê-lo verticalmente,
+ajuste a ordem desses elementos ou o espaçamento CSS de `.room-dialog label` e
+`.room-code-row`. A regra `.room-code-row { position: relative; }` serve para
+posicionar o ícone de copiar dentro da barra; ela não define a posição da barra
+no popup.
 
 O projeto ainda não possui chat persistente. O código de chat que existe na
 implementação alternativa de `src/main.ts` adiciona mensagens somente ao DOM

@@ -171,11 +171,11 @@ function getCachedRoomMembers(roomCode: string): Record<string, unknown> {
   }
 }
 
-function cacheRoomState(roomCode: string, members: Record<string, unknown>, userId: string, isOwner: boolean): void {
+function cacheRoomState(roomCode: string, members: Record<string, unknown>, userId: string, ownerId: string): void {
   try {
     localStorage.setItem(`console-room-members:${roomCode}`, JSON.stringify(members));
     localStorage.setItem(`console-room-user:${roomCode}`, userId);
-    localStorage.setItem(`console-room-owner:${roomCode}`, String(isOwner));
+    localStorage.setItem(`console-room-owner:${roomCode}`, ownerId);
   } catch (error) {
     console.error("Não foi possível salvar o estado local da sala:", error);
     showToast("Não foi possível manter o cache local da sala neste navegador.");
@@ -207,9 +207,15 @@ function renderTabs(
 
   for (const fileKey of fileKeys) {
     const tab = document.createElement("button");
-    tab.className = `tab${fileKey === activeFileKey ? " active" : ""}`;
-    tab.type = "button";
     const userId = fileKey.replace("personal:", "");
+    const isOwnerFile = userId === roomOwnerId;
+    tab.className = `tab${fileKey === activeFileKey ? " active" : ""}${isOwnerFile ? " room-owner" : ""}`;
+    tab.dataset.fileKey = fileKey;
+    tab.type = "button";
+    if (isOwnerFile) {
+      tab.title = "Arquivo do dono da sala";
+      tab.setAttribute("aria-label", `${fileLabel(fileKey, members)}, dono da sala`);
+    }
     const localFile = userId === getLocalUserId();
     const cachedRemoteFile = getOrCreateFile(fileKey).length > 0;
     tab.disabled = !localFile && !providerSynced && !cachedRemoteFile;
@@ -229,12 +235,13 @@ function renderTabs(
     tab.addEventListener("click", () => onSelect(fileKey));
     tabs!.append(tab);
   }
+  updateTypingIndicators();
 }
 
 async function joinRoom(
   roomCode: string,
   userId: string,
-): Promise<{ cleanup: () => void; isOwner: boolean; members: Record<string, unknown> }> {
+): Promise<{ cleanup: () => void; isOwner: boolean; ownerId: string; members: Record<string, unknown> }> {
   if (!database) throw new Error("Firebase ainda não foi configurado.");
   const roomRef = ref(database, `rooms/${roomCode}`);
   const membersRef = ref(database, `rooms/${roomCode}/members`);
@@ -285,16 +292,20 @@ async function joinRoom(
   await set(memberRef, { name: getUserName() });
   latestMembers = result.snapshot.child("members").val() ?? latestMembers;
   roomMembers = latestMembers;
+  const ownerId = result.snapshot.child("ownerId").val() as string;
+  roomOwnerId = ownerId;
   cacheRoomState(
     roomCode,
     roomMembers,
     userId,
-    result.snapshot.child("ownerId").val() === userId,
+    ownerId,
   );
+  renderTabs(roomMembers, activeFileKey, selectFile);
   renderMembers(latestMembers);
 
   return {
-    isOwner: result.snapshot.child("ownerId").val() === userId,
+    isOwner: ownerId === userId,
+    ownerId,
     members: latestMembers,
     cleanup: () => {
       membersListener();
@@ -321,16 +332,51 @@ let localPersistenceReady = false;
 let isRoomOwner = false;
 let roomMembers: Record<string, unknown> = getCachedRoomMembers(roomCode);
 let lastEditorValue = "";
+let typingIdleTimeout: number | undefined;
 const cachedUserId = localStorage.getItem(`console-room-user:${roomCode}`);
+let roomOwnerId = localStorage.getItem(`console-room-owner:${roomCode}`);
 if (cachedUserId) {
   roomJoined = true;
-  isRoomOwner = localStorage.getItem(`console-room-owner:${roomCode}`) === "true";
+  isRoomOwner = roomOwnerId === cachedUserId || roomOwnerId === "true";
+  if (roomOwnerId === "true") roomOwnerId = cachedUserId;
   renderMembers(roomMembers);
   renderTabs(roomMembers, activeFileKey, selectFile);
 }
 
 function getOrCreateFile(fileKey: string): Y.Text {
   return ydoc.getText(`console-file-${fileKey}`);
+}
+
+function updateTypingIndicators(): void {
+  const typingFileKeys = new Set<string>();
+  for (const state of provider.awareness.getStates().values()) {
+    const fileKey = state.consolePlusTyping;
+    if (typeof fileKey === "string") typingFileKeys.add(fileKey);
+  }
+
+  tabs!.querySelectorAll<HTMLButtonElement>(".tab[data-file-key]").forEach((tab) => {
+    const fileKey = tab.dataset.fileKey;
+    if (!fileKey) return;
+    const isOwnerFile = fileKey.replace("personal:", "") === roomOwnerId;
+    const isTyping = typingFileKeys.has(fileKey);
+    tab.classList.toggle("typing", isTyping);
+    const labelParts = [
+      fileLabel(fileKey, roomMembers),
+      ...(isOwnerFile ? ["dono da sala"] : []),
+      ...(isTyping ? ["em edição"] : []),
+    ];
+    tab.setAttribute("aria-label", labelParts.join(", "));
+    tab.title = [
+      ...(isOwnerFile ? ["Arquivo do dono da sala"] : []),
+      ...(isTyping ? ["Um participante está editando este arquivo"] : []),
+    ].join(" · ");
+  });
+}
+
+function stopLocalTyping(): void {
+  window.clearTimeout(typingIdleTimeout);
+  typingIdleTimeout = undefined;
+  provider.awareness.setLocalStateField("consolePlusTyping", null);
 }
 
 function observeActiveFile(text: Y.Text): void {
@@ -401,8 +447,13 @@ editor!.addEventListener("input", () => {
   const nextValue = editor!.value;
   updateYTextIncrementally(activeText, lastEditorValue, nextValue);
   lastEditorValue = nextValue;
+  provider.awareness.setLocalStateField("consolePlusTyping", activeFileKey);
+  window.clearTimeout(typingIdleTimeout);
+  typingIdleTimeout = window.setTimeout(stopLocalTyping, 1200);
 });
+editor!.addEventListener("blur", stopLocalTyping);
 
+provider.awareness.on("change", updateTypingIndicators);
 provider.on("status", ({ connected }: { connected: boolean }) => {
   providerSynced = connected && providerSynced;
   if (!connected) {
@@ -457,6 +508,12 @@ usersButton!.addEventListener("click", () => {
 inviteUsersButton!.addEventListener("click", openRoomDialog);
 copyRoomCodeButton!.addEventListener("click", () => void copyRoomCode());
 closeRoomDialog!.addEventListener("click", () => roomDialog!.close());
+otherRoomCode!.addEventListener("input", () => {
+  const start = otherRoomCode!.selectionStart;
+  const end = otherRoomCode!.selectionEnd;
+  otherRoomCode!.value = otherRoomCode!.value.toUpperCase();
+  otherRoomCode!.setSelectionRange(start, end);
+});
 roomDialog!.addEventListener("click", (event) => {
   if (event.target === roomDialog) roomDialog!.close();
 });
@@ -485,11 +542,12 @@ if (requiredConfig.some((value) => !value)) {
       usersButton!.textContent = `Usuários (1/${MAX_ROOM_MEMBERS})`;
       return joinRoom(roomCode, user.uid);
     })
-    .then(({ isOwner, members }) => {
+    .then(({ isOwner, ownerId, members }) => {
       isRoomOwner = isOwner;
+      roomOwnerId = ownerId;
       roomMembers = members;
       roomJoined = true;
-      cacheRoomState(roomCode, roomMembers, auth.currentUser!.uid, isOwner);
+      cacheRoomState(roomCode, roomMembers, auth.currentUser!.uid, ownerId);
       renderTabs(roomMembers, activeFileKey, selectFile);
       finishCollaborationSetup();
     })

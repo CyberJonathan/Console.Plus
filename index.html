@@ -737,7 +737,12 @@
       }
 
       .code-editor::selection {
-        background: #3a3a3a;
+        background: rgba(0, 105, 55, 0.62);
+        color: transparent;
+      }
+
+      .code-editor::-moz-selection {
+        background: rgba(0, 105, 55, 0.62);
         color: transparent;
       }
 
@@ -878,12 +883,26 @@
       }
 
       .stdin-form button {
+        display: grid;
+        width: 36px;
+        flex: 0 0 36px;
         height: 28px;
-        padding: 0 12px;
+        padding: 0;
+        place-items: center;
         border-color: var(--emerald);
         background: var(--emerald);
         color: var(--bg);
         font-size: 11px;
+      }
+
+      .stdin-submit-icon {
+        width: 17px;
+        height: 17px;
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 2.4;
       }
 
       .prompt {
@@ -1177,7 +1196,11 @@ int main() {
           <form id="stdinForm" class="stdin-form" hidden>
             <span id="stdinCommand" class="stdin-command" aria-hidden="true">scanf</span>
             <input id="stdinInput" type="text" aria-label="Entrada para scanf" placeholder="Digite os valores separados por espaço" autocomplete="off" />
-            <button type="submit">></button>
+            <button type="submit" aria-label="Enviar entrada e executar" title="Enviar entrada e executar">
+              <svg class="stdin-submit-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 12h14M13 5l7 7-7 7"></path>
+              </svg>
+            </button>
           </form>
         </section>
       </section>

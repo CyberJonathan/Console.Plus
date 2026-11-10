@@ -3,7 +3,7 @@ import {
   Judge0AbortError,
   Judge0RequestError,
   validateRunInput,
-} from "../server/judge0";
+} from "../server/judge0.js";
 
 interface VercelRequest {
   method?: string;

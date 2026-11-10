@@ -7,7 +7,7 @@ import {
   Judge0AbortError,
   Judge0RequestError,
   validateRunInput,
-} from "./judge0";
+} from "./judge0.js";
 
 export const app = express();
 export const server = createServer(app);

@@ -879,14 +879,6 @@
         opacity: 0.6;
       }
 
-      .stdin-command {
-        flex: 0 0 auto;
-        color: var(--emerald);
-        font: 11px var(--font);
-        font-weight: 700;
-        text-transform: uppercase;
-      }
-
       .stdin-actions {
         display: flex;
         flex: 0 0 auto;
@@ -923,6 +915,10 @@
 
       .prompt {
         color: var(--text-dim);
+        display: inline-block;
+        width: 12px;
+        font-size: 8px;
+        vertical-align: 1px;
       }
 
       .cursor {
@@ -1155,7 +1151,7 @@
         </button>
         <div class="topbar-actions">
           <button id="inviteUsersButton" type="button" aria-label="Adicionar usuário" title="Copiar convite da sala">+</button>
-          <button id="usersButton" type="button">Usuários (0/8)</button>
+          <button id="usersButton" type="button" hidden>Usuários (0/8)</button>
         </div>
       </header>
 
@@ -1209,10 +1205,9 @@ int main() {
           </div>
           <pre id="resultOutput" class="result-output waiting">&gt; aguardando execução <span class="cursor">_</span></pre>
           <form id="stdinForm" class="stdin-form" hidden>
-            <span id="stdinCommand" class="stdin-command" aria-hidden="true">scanf</span>
-            <input id="stdinInput" type="text" aria-label="Entrada para scanf" placeholder="Digite os valores separados por espaço" autocomplete="off" />
+            <input id="stdinInput" type="text" aria-label="Entrada do programa" placeholder="Digite os valores separados por espaço" autocomplete="off" />
             <div class="stdin-actions">
-              <button id="stdinEofButton" type="button">Enviar EOF</button>
+              <button id="stdinEofButton" type="button">"Enviar Fim de Arquivo"</button>
               <button id="stdinSubmitButton" type="submit" aria-label="Enviar entrada e executar" title="Enviar entrada e executar">
                 <svg class="stdin-submit-icon" viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M5 12h14M13 5l7 7-7 7"></path>
@@ -1389,12 +1384,15 @@ int main() {
       function setOutput(message, state) {
         output.className = `result-output ${state}`;
         output.replaceChildren();
-        const prompt = document.createElement("span");
-        const text = document.createElement("span");
-        prompt.className = "prompt";
-        text.textContent = message;
-        prompt.textContent = "● ";
-        output.append(prompt, text);
+        for (const [index, line] of message.split("\n").entries()) {
+          if (index > 0) output.append(document.createTextNode("\n"));
+          const prompt = document.createElement("span");
+          const text = document.createElement("span");
+          prompt.className = "prompt";
+          prompt.textContent = "●";
+          text.textContent = line;
+          output.append(prompt, text);
+        }
       }
 
       function showToast(message) {

@@ -133,6 +133,7 @@ function renderMembers(value: unknown): void {
   const members = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const entries = Object.entries(members);
   usersButton!.textContent = `Usuários (${entries.length}/${MAX_ROOM_MEMBERS})`;
+  usersButton!.hidden = entries.length <= 1;
   membersList!.replaceChildren();
 
   if (entries.length === 0) {

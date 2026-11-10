@@ -874,6 +874,10 @@
         font: 12px var(--font);
       }
 
+      .stdin-form input:disabled {
+        opacity: 0.6;
+      }
+
       .stdin-command {
         flex: 0 0 auto;
         color: var(--emerald);
@@ -882,17 +886,28 @@
         text-transform: uppercase;
       }
 
+      .stdin-actions {
+        display: flex;
+        flex: 0 0 auto;
+        gap: 6px;
+      }
+
       .stdin-form button {
         display: grid;
-        width: 36px;
-        flex: 0 0 36px;
+        min-width: 36px;
         height: 28px;
-        padding: 0;
+        padding: 0 8px;
         place-items: center;
         border-color: var(--emerald);
         background: var(--emerald);
         color: var(--bg);
         font-size: 11px;
+      }
+
+      .stdin-form #stdinEofButton {
+        border-color: var(--border);
+        background: var(--panel-2);
+        color: var(--text-dim);
       }
 
       .stdin-submit-icon {
@@ -1169,7 +1184,6 @@
                 <rect x="8" y="8" width="11" height="11" rx="1"></rect>
                 <path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"></path>
               </svg>
-              
             </button>
           </div>
           <div class="editor-shell">
@@ -1196,11 +1210,14 @@ int main() {
           <form id="stdinForm" class="stdin-form" hidden>
             <span id="stdinCommand" class="stdin-command" aria-hidden="true">scanf</span>
             <input id="stdinInput" type="text" aria-label="Entrada para scanf" placeholder="Digite os valores separados por espaço" autocomplete="off" />
-            <button type="submit" aria-label="Enviar entrada e executar" title="Enviar entrada e executar">
-              <svg class="stdin-submit-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M5 12h14M13 5l7 7-7 7"></path>
-              </svg>
-            </button>
+            <div class="stdin-actions">
+              <button id="stdinEofButton" type="button">Enviar EOF</button>
+              <button id="stdinSubmitButton" type="submit" aria-label="Enviar entrada e executar" title="Enviar entrada e executar">
+                <svg class="stdin-submit-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M5 12h14M13 5l7 7-7 7"></path>
+                </svg>
+              </button>
+            </div>
           </form>
         </section>
       </section>
@@ -1263,6 +1280,8 @@ int main() {
       const executionStatus = document.querySelector("#executionStatus");
       const stdinForm = document.querySelector("#stdinForm");
       const stdinInput = document.querySelector("#stdinInput");
+      const stdinSubmitButton = document.querySelector("#stdinSubmitButton");
+      const stdinEofButton = document.querySelector("#stdinEofButton");
       const runButton = document.querySelector("#runButton");
       const stopButton = document.querySelector("#stopButton");
       const copyButton = document.querySelector("#copyButton");
@@ -1274,8 +1293,10 @@ int main() {
       const nameInput = document.querySelector("#nameInput");
       const nameError = document.querySelector("#nameError");
       const cancelNameButton = document.querySelector("#cancelNameButton");
-      let runTimer;
       let toastTimer;
+      let executionSession = null;
+      let activeRunController = null;
+      const MAX_SESSION_INPUTS = 50;
 
       function updateUserIdentity(name) {
         const normalizedName = name.trim().replace(/\s+/g, " ").slice(0, 32);
@@ -1382,43 +1403,147 @@ int main() {
         toastTimer = window.setTimeout(() => toast.classList.remove("visible"), 1800);
       }
 
-      function setStdinVisible(visible) {
+      function setStdinVisible(visible, busy = false) {
         stdinForm.hidden = !visible;
+        stdinInput.disabled = busy || !visible;
+        stdinSubmitButton.disabled = busy || !visible;
+        stdinEofButton.disabled = busy || !visible || !executionSession;
         if (visible) {
-          stdinInput.value = "";
-          stdinInput.focus();
+          if (!busy && !stdinInput.disabled) stdinInput.focus();
         }
       }
 
-      async function executeWithJudge0(stdin = "") {
-        setOutput("Executando...", "waiting");
+      function renderInteractiveTranscript(session, stdout) {
+        let transcript = "";
+        let offset = 0;
+        for (const entry of session.inputs) {
+          const entryOffset = Math.min(Math.max(entry.stdoutOffset, offset), stdout.length);
+          transcript += stdout.slice(offset, entryOffset);
+          transcript += `${entry.text}\n`;
+          offset = entryOffset;
+        }
+        return transcript + stdout.slice(offset);
+      }
+
+      function createSessionSeed() {
+        return crypto.getRandomValues(new Uint32Array(1))[0];
+      }
+
+      async function executeSession(session, sendEof = false) {
+        const controller = new AbortController();
+        activeRunController = controller;
+        setStdinVisible(!stdinForm.hidden, true);
         setExecutionStatus("Executando...", "waiting");
-        const startedAt = performance.now();
 
         try {
           const response = await fetch("/api/run", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ sourceCode: editor.value, languageId: 50, stdin }),
+            signal: controller.signal,
+            body: JSON.stringify({
+              sourceCode: session.sourceCode,
+              languageId: 50,
+              stdin: session.inputs.map((entry) => `${entry.text}\n`).join(""),
+              sessionSeed: session.seed,
+              sendEof,
+            }),
           });
           const result = await response.json();
+          if (executionSession !== session) return;
           if (!response.ok) {
             const details = result.details ? ` ${result.details}` : "";
             throw new Error(`${result.error ?? "O backend recusou a execução."}${details}`);
           }
 
-          const message = result.stdout || result.stderr || result.compile_output || result.message || "Programa executado sem saída.";
-          const failed = Boolean(result.compile_output || result.stderr || result.status?.id >= 4);
-          const elapsedMs = Math.round(performance.now() - startedAt);
-          document.querySelector(".statusbar-right span:last-child").textContent =
-            `${result.time ? Math.round(Number(result.time) * 1000) : elapsedMs} ms`;
-          setOutput(message, failed ? "error" : "success");
-          setExecutionStatus(failed ? (result.status?.description ?? "Erro na execução") : "Programa executado com sucesso", failed ? "error" : "success");
+          const stdout = typeof result.stdout === "string" ? result.stdout : "";
+          session.lastStdout = stdout;
+          const transcript = renderInteractiveTranscript(session, stdout);
+          const compileOutput = typeof result.compile_output === "string" ? result.compile_output : "";
+          const stderr = typeof result.stderr === "string" ? result.stderr : "";
+          const statusFailed = result.status?.id >= 4;
+          const failed = Boolean(compileOutput || (stderr && !result.needsInput) || statusFailed);
+          const message = [transcript, compileOutput, stderr].filter(Boolean).join("\n");
+          const waitingForInput = result.needsInput && !failed;
+          document.querySelector("#executionTime").textContent =
+            `${result.time ? Math.round(Number(result.time) * 1000) : 0} ms`;
+
+          setOutput(message || "Programa executado sem saída.", waitingForInput ? "waiting" : failed ? "error" : "success");
+          if (waitingForInput) {
+            runButton.disabled = false;
+            setStdinVisible(true);
+            if (session.inputs.length >= MAX_SESSION_INPUTS) {
+              stdinInput.disabled = true;
+              stdinSubmitButton.disabled = true;
+              setExecutionStatus(`Limite de ${MAX_SESSION_INPUTS} entradas atingido. Envie EOF para continuar.`, "error");
+            } else {
+              stdinInput.value = "";
+              setExecutionStatus("Aguardando entrada", "waiting");
+            }
+            return;
+          }
+
+          executionSession = null;
+          runButton.disabled = false;
+          setStdinVisible(false);
+          setExecutionStatus(
+            failed ? (result.status?.description ?? "Erro na execução") : "Programa executado com sucesso",
+            failed ? "error" : "success",
+          );
         } catch (error) {
+          if (executionSession !== session) return;
           const message = error instanceof Error ? error.message : "Falha desconhecida ao executar.";
+          executionSession = null;
+          runButton.disabled = false;
+          setStdinVisible(false);
           setOutput(message, "error");
           setExecutionStatus("Erro na execução", "error");
+        } finally {
+          if (activeRunController === controller) activeRunController = null;
+          if (executionSession === session) setStdinVisible(!stdinForm.hidden);
         }
+      }
+
+      function startExecutionSession() {
+        activeRunController?.abort();
+        const session = {
+          sourceCode: editor.value,
+          seed: createSessionSeed(),
+          inputs: [],
+          lastStdout: "",
+        };
+        executionSession = session;
+        stdinInput.value = "";
+        setOutput("Executando...", "waiting");
+        runButton.disabled = true;
+        setStdinVisible(false);
+        void executeSession(session);
+      }
+
+      function submitSessionInput(sendEof = false) {
+        const session = executionSession;
+        if (!session || activeRunController) return;
+
+        const input = stdinInput.value;
+        if (!sendEof && session.inputs.length >= MAX_SESSION_INPUTS) {
+          stdinInput.disabled = true;
+          stdinSubmitButton.disabled = true;
+          setExecutionStatus(`Limite de ${MAX_SESSION_INPUTS} entradas atingido. Envie EOF para continuar.`, "error");
+          return;
+        }
+        if (sendEof && input && session.inputs.length >= MAX_SESSION_INPUTS) {
+          setExecutionStatus(`Limite de ${MAX_SESSION_INPUTS} entradas atingido. Apague a entrada ou envie EOF.`, "error");
+          return;
+        }
+
+        if (input || !sendEof) {
+          session.inputs.push({
+            text: input,
+            stdoutOffset: session.lastStdout.length,
+          });
+        }
+        stdinInput.value = "";
+        setStdinVisible(true, true);
+        void executeSession(session, sendEof);
       }
 
       function splitArguments(value) {
@@ -1510,27 +1635,27 @@ int main() {
       copyButton.addEventListener("click", () => void copyEditorCode());
 
       runButton.addEventListener("click", () => {
-        window.clearTimeout(runTimer);
-        setStdinVisible(/\bscanf\s*\(/.test(editor.value));
-        if (/\bscanf\s*\(/.test(editor.value)) {
-          setOutput("Entrada necessária para scanf.", "waiting");
-          setExecutionStatus("Aguardando entrada", "waiting");
-          return;
-        }
-        executeWithJudge0();
+        startExecutionSession();
       });
 
       stdinForm.addEventListener("submit", (event) => {
         event.preventDefault();
-        setStdinVisible(false);
-        executeWithJudge0(stdinInput.value);
+        submitSessionInput();
       });
+      stdinEofButton.addEventListener("click", () => submitSessionInput(true));
 
       stopButton.addEventListener("click", () => {
-        window.clearTimeout(runTimer);
+        const session = executionSession;
+        executionSession = null;
+        activeRunController?.abort();
+        activeRunController = null;
+        runButton.disabled = false;
         setStdinVisible(false);
         setExecutionStatus("Execução interrompida", "error");
-        showToast("Execução interrompida.");
+        if (session) {
+          setOutput("Execução interrompida.", "error");
+          showToast("Execução interrompida.");
+        }
       });
 
       function closeNameModal() {

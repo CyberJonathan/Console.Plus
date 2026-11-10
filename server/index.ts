@@ -2,6 +2,12 @@ import express from "express";
 import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
+import {
+  executeJudge0,
+  Judge0AbortError,
+  Judge0RequestError,
+  validateRunInput,
+} from "./judge0";
 
 export const app = express();
 export const server = createServer(app);
@@ -9,97 +15,39 @@ export const port = Number(process.env.PORT ?? 3001);
 const judge0Url = process.env.JUDGE0_URL ?? "https://ce.judge0.com";
 const judge0TimeoutMs = Number(process.env.JUDGE0_TIMEOUT_MS ?? 30_000);
 
-app.use(express.json({ limit: "64kb" }));
-
-function encodeJudge0Value(value: string) {
-  return Buffer.from(value, "utf8").toString("base64");
-}
-
-function decodeJudge0Result(result: Record<string, unknown>) {
-  for (const field of ["stdout", "stderr", "compile_output", "message"]) {
-    if (typeof result[field] === "string") {
-      result[field] = Buffer.from(result[field], "base64").toString("utf8");
-    }
-  }
-  return result;
-}
-
-function parseLanguageId(value: unknown): number {
-  if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
-  if (typeof value === "string" && value.trim() !== "") {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isInteger(parsed) && parsed > 0) return parsed;
-  }
-  throw new Error("languageId deve ser um número inteiro positivo.");
-}
+app.use(express.json({ limit: "512kb" }));
 
 app.post("/api/run", async (request, response) => {
-  const body = request.body as {
-    sourceCode?: unknown;
-    languageId?: unknown;
-    stdin?: unknown;
-  };
-
-  const { sourceCode, stdin = "" } = body;
-
-  if (typeof sourceCode !== "string" || sourceCode.length === 0 || sourceCode.length > 100_000) {
-    response.status(400).json({ error: "sourceCode deve ser um texto de até 100 KB e não vazio." });
+  const validation = validateRunInput(request.body);
+  if (!validation.input) {
+    response.status(400).json({ error: validation.error });
     return;
   }
 
-  if (typeof stdin !== "string") {
-    response.status(400).json({ error: "stdin deve ser uma string." });
-    return;
-  }
+  const abortController = new AbortController();
+  response.on("close", () => {
+    if (!response.writableEnded) abortController.abort();
+  });
 
-  let languageId: number;
   try {
-    languageId = parseLanguageId(body.languageId ?? 50);
+    const result = await executeJudge0(validation.input, {
+      judge0Url,
+      timeoutMs: judge0TimeoutMs,
+      authToken: process.env.JUDGE0_AUTH_TOKEN,
+      signal: abortController.signal,
+    });
+    response.status(200).json(result);
   } catch (error) {
-    response.status(400).json({ error: error instanceof Error ? error.message : "languageId inválido." });
-    return;
-  }
-
-  try {
-    const abortController = new AbortController();
-    const timeout = setTimeout(() => abortController.abort(), judge0TimeoutMs);
-    const submission = await fetch(
-      `${judge0Url}/submissions?base64_encoded=true&wait=true`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          source_code: encodeJudge0Value(sourceCode),
-          language_id: languageId,
-          stdin: encodeJudge0Value(stdin),
-        }),
-        signal: abortController.signal,
-      },
-    );
-    clearTimeout(timeout);
-
-    if (!submission.ok) {
-      const details = await submission.text();
-      console.error(`Judge0 respondeu ${submission.status}:`, details);
-      response.status(submission.status).json({
-        error: "O serviço Judge0 recusou a execução.",
-        details: details || "O Judge0 não informou detalhes.",
+    if (error instanceof Judge0AbortError) return;
+    if (error instanceof Judge0RequestError) {
+      response.status(error.statusCode).json({
+        error: error.message,
+        ...(error.details ? { details: error.details } : {}),
       });
       return;
     }
-
-    const result = (await submission.json()) as Record<string, unknown>;
-    response.status(200).json(decodeJudge0Result(result));
-  } catch (error) {
-    console.error("Judge0 indisponível:", error);
-    if (error instanceof Error && error.name === "AbortError") {
-      response.status(504).json({
-        error: "O Judge0 demorou mais que o limite para responder.",
-        details: `Limite configurado: ${judge0TimeoutMs} ms.`,
-      });
-      return;
-    }
-    response.status(502).json({ error: "Não foi possível conectar ao Judge0." });
+    console.error("Falha inesperada na execução:", error);
+    response.status(502).json({ error: "Falha inesperada ao executar o programa." });
   }
 });
 

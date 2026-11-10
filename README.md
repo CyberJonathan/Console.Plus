@@ -156,18 +156,25 @@ visível.
 
 O botão `Run` e o atalho `Ctrl+Enter` iniciam a execução. O frontend:
 
-1. verifica se o código contém `scanf`;
-2. se contiver, mostra o formulário de entrada;
-3. caso contrário, envia imediatamente o código para `/api/run`;
-4. mostra o estado `Executando...`;
-5. mede o tempo total da requisição;
-6. escolhe a saída apropriada;
-7. pinta o resultado como sucesso ou erro.
+1. inicia uma sessão com uma seed aleatória e envia o código para `/api/run`;
+2. mostra a saída recebida e, quando `needsInput` for `true`, abre o campo
+   `SCANF`;
+3. ao enviar uma linha, reexecuta o programa com todas as linhas acumuladas e
+   exibe a saída com o eco das respostas nos pontos em que foram solicitadas;
+4. encerra a sessão quando o programa termina ou falha.
 
-O botão `Stop` atualmente interrompe o fluxo visual local: fecha o formulário
-de entrada, atualiza o status e mostra uma mensagem. Ele não cancela uma
-requisição HTTP que já foi enviada ao backend nem interrompe um processo que já
-esteja rodando no Judge0.
+Esse fluxo simula a entrada interativa: o processo C não fica aberto entre as
+respostas. Cada resposta dispara uma nova execução no Judge0 com a mesma seed.
+Programas sem leitura de entrada continuam executando em uma única chamada. O
+botão **Enviar EOF** reexecuta o programa sem interceptar leituras no fim da
+entrada, permitindo que laços como `while (scanf(...) == 1)` terminem por EOF.
+Para manter a entrada em lote, uma resposta pode conter vários valores
+separados por espaços, por exemplo `7 8 9`. O formulário permite até 50
+respostas por sessão.
+
+O botão **Stop** aborta a requisição HTTP atual e descarta a sessão no
+navegador. Isso não garante que uma execução já recebida pelo Judge0 seja
+encerrada remotamente.
 
 ## Como o editor funciona
 
@@ -249,13 +256,17 @@ O `languageId` `50` representa GNU C no Judge0.
 
 ### Validação no backend
 
-Em [server/index.ts](./server/index.ts), o Express usa
-`express.json({ limit: "64kb" })`. Depois, `/api/run` valida:
+Em [server/index.ts](./server/index.ts), o Express aceita corpos JSON de até
+`512kb`, deixando espaço para o código e a entrada dentro dos limites
+individuais. Depois, `/api/run` valida:
 
 - `sourceCode` deve ser uma string não vazia;
 - `sourceCode` não pode passar de 100 KB;
 - `stdin` deve ser uma string;
-- `languageId` deve ser um inteiro positivo, ou o valor padrão `50`.
+- `stdin` acumulado não pode ultrapassar 64 KB;
+- `languageId` deve ser um inteiro positivo, ou o valor padrão `50`;
+- `sessionSeed` deve ser um inteiro entre `0` e `4294967295`, ou usa `0`;
+- `sendEof` deve ser booleano, ou usa `false`.
 
 Quando a entrada é inválida, a API responde `400` com um objeto contendo
 `error`.
@@ -271,6 +282,26 @@ O Judge0 é chamado com `base64_encoded=true`. Por isso, o backend converte
 ```text
 texto UTF-8 → Buffer → Base64 → Judge0
 ```
+
+### Entrada incremental e instrumentação
+
+O backend anexa ao fim do código um trecho interno em C e passa opções
+`-Wl,--wrap=...` em `compiler_options`. Os wrappers verificam leituras de
+`scanf`, `fscanf`, `getchar`, `getc`, `fgetc`, `fgets` e `getline`. Quando uma
+leitura atinge o fim das entradas acumuladas, o trecho descarrega `stdout`,
+escreve um marcador aleatório em `stderr` e encerra essa execução. O backend
+remove o marcador e devolve `needsInput: true`; assim, os erros de compilação
+do código do usuário mantêm seus números de linha.
+
+O frontend gera uma seed por clique em **Run** e a reutiliza nas reexecuções da
+mesma sessão. Os wrappers de `time`, `clock`, `gettimeofday` e `clock_gettime`
+fornecem valores fixos derivados dessa seed. Isso torna chamadas como
+`srand(time(NULL))` reproduzíveis durante uma sessão, mas significa que a
+medição de tempo decorrido pelo programa retorna zero (ou não avança).
+
+O campo `needsInput` é um booleano incluído nas respostas bem-sucedidas de
+`POST /api/run`. A execução continua sujeita ao timeout do backend: 8 segundos
+na Vercel por padrão e 30 segundos no Express local.
 
 Isso evita problemas de transporte com acentos, quebras de linha e caracteres
 especiais. No retorno, os campos `stdout`, `stderr`, `compile_output` e
@@ -547,8 +578,7 @@ nem é um backup de servidor: limpar os dados do site ou usar outro dispositivo
 remove o acesso a essa cópia. Se ambos os usuários estiverem offline ao mesmo
 tempo, as cópias locais só poderão se reconciliar quando voltarem a se conectar.
 O indicador `ms` na barra inferior mostra o tempo de CPU reportado pelo Judge0
-quando disponível; caso contrário, mostra o tempo total da requisição,
-incluindo rede e espera pelo serviço.
+quando disponível; se a resposta não trouxer esse dado, mostra `0 ms`.
 
 ### Posicionamento dos botões do topo
 
@@ -771,9 +801,16 @@ curl -X POST http://localhost:3001/api/run \
   -d '{
     "sourceCode": "#include <stdio.h>\nint main() { printf(\"oi\\n\"); return 0; }",
     "languageId": 50,
-    "stdin": ""
+    "stdin": "",
+    "sessionSeed": 12345,
+    "sendEof": false
   }'
 ```
+
+Quando houver saída válida do Judge0, a resposta inclui `needsInput`. Envie
+`stdin` com as linhas acumuladas terminadas em `\n`, mantenha o mesmo
+`sessionSeed` em todas as reexecuções da sessão e defina `sendEof: true` para
+deixar o programa receber EOF sem a interceptação de novas entradas.
 
 ### `GET /api/health`
 
@@ -936,14 +973,19 @@ Estas limitações fazem parte do estado atual do projeto:
 5. A interface principal usa um `textarea` sincronizado diretamente com Yjs;
    Monaco/Yjs continua disponível apenas na implementação alternativa de
    `src/main.ts`.
-6. O botão `Stop` não aborta uma execução já enviada ao Judge0.
+6. A entrada interativa é simulada por reexecuções completas no Judge0; por
+   isso, cada nova resposta pode adicionar alguns segundos de espera e gera uma
+   chamada adicional ao serviço. **Stop** cancela a requisição do navegador,
+   mas não garante o encerramento remoto do processo no Judge0.
 7. A execução depende de um serviço Judge0 externo.
 8. Não há histórico de execuções ou salvamento em banco de dados.
 9. Não há seleção de linguagem na interface; o frontend sempre envia
    `languageId: 50`.
 10. O destaque de sintaxe é baseado em regex, não em um parser de C.
 11. O endpoint `/api/run` não possui autenticação, rate limit ou cota por
-    usuário.
+    usuário. Como cada resposta interativa gera outra chamada ao Judge0, é
+    importante implementar rate limit antes de disponibilizar o serviço
+    publicamente.
 12. A disponibilidade da colaboração WebRTC depende do servidor configurado em
     `VITE_YJS_SIGNALING_URL`, de WebRTC e da conectividade dos navegadores.
 13. Os documentos Yjs são mantidos em cache IndexedDB nos dispositivos que

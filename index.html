@@ -12,6 +12,7 @@
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" />
     <style>
       /* Tokens */
       :root {
@@ -187,18 +188,57 @@
       }
 
       #inviteUsersButton {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         width: 28px;
+        height: 28px;
+        min-height: 28px;
         padding: 0;
         border-color: var(--emerald);
         background: var(--emerald);
         color: var(--bg);
-        font-size: 18px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      }
+      #inviteUsersButton .material-symbols-outlined {
+        display: block;
+        font-size: 15px;
         line-height: 1;
       }
 
       #inviteUsersButton:hover {
         background: #1ab17f;
         color: var(--bg);
+      }
+
+      #leaveRoomButton {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        min-height: 28px;
+        padding: 0;
+        border-color: var(--danger);
+        background: var(--danger);
+        color: #ffffff;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      }
+
+      #leaveRoomButton[hidden] {
+        display: none;
+      }
+
+      #leaveRoomButton:hover {
+        background: #d65b5b;
+        color: #ffffff;
+      }
+
+      #leaveRoomButton .material-symbols-outlined {
+        display: block;
+        font-size: 17px;
+        line-height: 1;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
       }
 
       .room-dialog {
@@ -338,9 +378,13 @@
 
       .room-dialog-feedback {
         min-height: 16px;
-        margin: 8px 0 0;
+        margin: 8px 0;
         color: var(--err);
         font-size: 10px;
+      }
+
+      .room-dialog-feedback.success {
+        color: var(--ok);
       }
 
       .members-panel {
@@ -1253,7 +1297,12 @@
           <span id="userName">Usuario</span>
         </button>
         <div class="topbar-actions">
-          <button id="inviteUsersButton" type="button" aria-label="Adicionar usuário" title="Copiar convite da sala">+</button>
+          <button id="inviteUsersButton" type="button" aria-label="Compartilhar sala" title="Copiar convite da sala">
+            <span class="material-symbols-outlined">share</span>
+          </button>
+          <button id="leaveRoomButton" type="button" aria-label="Sair da sala" title="Sair para uma sessão solo" hidden>
+            <span class="material-symbols-outlined">logout</span>
+          </button>
           <button id="usersButton" type="button" hidden>Usuários (0/8)</button>
         </div>
       </header>
@@ -1350,10 +1399,10 @@ int main() {
           </svg>
         </button>
       </div>
+      <p id="roomDialogFeedback" class="room-dialog-feedback" aria-live="polite"></p>
       <form id="joinRoomForm">
         <label for="otherRoomCode">Entrar na sala de outra pessoa</label>
         <input id="otherRoomCode" type="text" maxlength="12" autocomplete="off" placeholder="Digite o código da sala" />
-        <p id="roomDialogFeedback" class="room-dialog-feedback" aria-live="polite"></p>
         <button id="joinRoomButton" type="submit">Entrar</button>
       </form>
     </dialog>

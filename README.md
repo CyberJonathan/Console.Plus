@@ -196,6 +196,10 @@ dispositivos. Salas antigas sem registro de sala atual não podem ser localizada
 automaticamente; o dono precisa reabri-las uma vez para registrar a sala, ou
 removê-las manualmente no Firebase.
 
+O botão de saída remove o participante da presença da sala e abre uma sessão
+solo com um documento Yjs e cache IndexedDB separados. Essa sessão não entra no
+Firebase nem exibe ações de compartilhamento.
+
 Para publicar o app, configure as variáveis `VITE_FIREBASE_*` e
 `VITE_YJS_SIGNALING_URL` no ambiente de build do frontend. Em uma hospedagem
 como Vercel, configure também `JUDGE0_URL`, `JUDGE0_TIMEOUT_MS` e, se

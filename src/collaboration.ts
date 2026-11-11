@@ -24,6 +24,7 @@ const COLLABORATION_SYNC_TIMEOUT_MS = 20_000;
 const editor = document.querySelector<HTMLTextAreaElement>("#codeEditor");
 const usersButton = document.querySelector<HTMLButtonElement>("#usersButton");
 const inviteUsersButton = document.querySelector<HTMLButtonElement>("#inviteUsersButton");
+const leaveRoomButton = document.querySelector<HTMLButtonElement>("#leaveRoomButton");
 const toast = document.querySelector<HTMLElement>("#toast");
 const membersPanel = document.querySelector<HTMLElement>("#membersPanel");
 const membersList = document.querySelector<HTMLUListElement>("#membersList");
@@ -50,7 +51,7 @@ int main() {
 }`;
 
 if (
-  !editor || !usersButton || !inviteUsersButton || !toast || !membersPanel || !membersList ||
+  !editor || !usersButton || !inviteUsersButton || !leaveRoomButton || !toast || !membersPanel || !membersList ||
   !tabs || !personalFileLoader || !personalFileLoaderMessage || !personalFileLoaderRetry ||
   !roomDialog || !currentRoomCode || !copyRoomCodeButton || !closeRoomDialog ||
   !joinRoomForm || !otherRoomCode || !roomDialogFeedback
@@ -205,6 +206,7 @@ function cacheRoomState(roomCode: string, members: Record<string, unknown>, user
 }
 
 function getLocalUserId(): string | null {
+  if (soloMode) return soloUserId;
   const firebaseUserId = firebaseApp ? getAuth(firebaseApp).currentUser?.uid : null;
   return firebaseUserId ?? localStorage.getItem(`console-room-user:${roomCode}`);
 }
@@ -224,7 +226,13 @@ function renderTabs(
   activeFileKey: string,
   onSelect: (fileKey: string) => void,
 ): void {
-  const fileKeys = Object.keys(members).map((userId) => `personal:${userId}`);
+  const fileKeys = Object.keys(members)
+    .map((userId) => `personal:${userId}`)
+    .sort((first, second) => {
+      const firstIsOwner = first.replace("personal:", "") === roomOwnerId;
+      const secondIsOwner = second.replace("personal:", "") === roomOwnerId;
+      return Number(secondIsOwner) - Number(firstIsOwner);
+    });
   if (fileKeys.length === 0) {
     const initialTab = tabs!.querySelector<HTMLButtonElement>(".tab");
     if (initialTab) applyPersonalFileState(initialTab);
@@ -277,7 +285,7 @@ function renderTabs(
 async function joinRoom(
   roomCode: string,
   userId: string,
-): Promise<{ cleanup: () => void; isOwner: boolean; ownerId: string; members: Record<string, unknown> }> {
+): Promise<{ cleanup: () => Promise<void>; isOwner: boolean; ownerId: string; members: Record<string, unknown> }> {
   if (!database) throw new Error("Firebase ainda não foi configurado.");
   const activeDatabase: Database = database;
   const roomRef = ref(activeDatabase, `rooms/${roomCode}`);
@@ -393,13 +401,11 @@ async function joinRoom(
       isOwner: ownerId === userId,
       ownerId,
       members: latestMembers,
-      cleanup: () => {
+      cleanup: async () => {
         if (heartbeatTimer !== undefined) window.clearInterval(heartbeatTimer);
         membersListener();
         connectedListener();
-        void remove(memberRef).catch((error: unknown) => {
-          console.error("Não foi possível remover a presença ao sair da sala:", error);
-        });
+        await remove(memberRef);
       },
     };
   } catch (error) {
@@ -410,6 +416,16 @@ async function joinRoom(
 }
 
 const roomCode = getRoomCode();
+const soloMode = new URLSearchParams(location.search).get("solo") === "1";
+let soloUserId: string | null = null;
+if (soloMode) {
+  const soloUserKey = `console-solo-user:${roomCode}`;
+  soloUserId = localStorage.getItem(soloUserKey);
+  if (!soloUserId) {
+    soloUserId = `solo-${crypto.randomUUID()}`;
+    localStorage.setItem(soloUserKey, soloUserId);
+  }
+}
 const ydoc = new Y.Doc();
 const localPersistence = new IndexeddbPersistence(`console-room-${roomCode}`, ydoc);
 const signalingUrl = import.meta.env.VITE_YJS_SIGNALING_URL || "wss://signaling.yjs.dev";
@@ -421,6 +437,7 @@ let activeText: Y.Text | null = null;
 let applyingRemoteChange = false;
 let collaborationReady = false;
 let roomJoined = false;
+let roomCleanup: (() => Promise<void>) | undefined;
 let providerSynced = false;
 let providerReportedSynced = false;
 let remoteWebrtcPeerCount = 0;
@@ -435,8 +452,8 @@ let personalFileError = "";
 let lastEditorValue = "";
 let typingIdleTimeout: number | undefined;
 let localTyping = false;
-const cachedUserId = localStorage.getItem(`console-room-user:${roomCode}`);
-let roomOwnerId = localStorage.getItem(`console-room-owner:${roomCode}`);
+const cachedUserId = soloMode ? soloUserId : localStorage.getItem(`console-room-user:${roomCode}`);
+let roomOwnerId = soloMode ? soloUserId : localStorage.getItem(`console-room-owner:${roomCode}`);
 if (cachedUserId) {
   isRoomOwner = roomOwnerId === cachedUserId || roomOwnerId === "true";
   if (roomOwnerId === "true") roomOwnerId = cachedUserId;
@@ -685,9 +702,7 @@ editor!.addEventListener("blur", stopLocalTyping);
 
 provider.awareness.on("change", updateTypingIndicators);
 provider.on("peers", ({ webrtcPeers }: { webrtcPeers: string[] }) => {
-  const hadPeers = remoteWebrtcPeerCount > 0;
   remoteWebrtcPeerCount = webrtcPeers.length;
-  if (hadPeers && remoteWebrtcPeerCount === 0) providerReportedSynced = false;
   providerSynced = providerReportedSynced && remoteWebrtcPeerCount > 0;
   renderTabs(roomMembers, activeFileKey, selectFile);
   if (providerSynced) finishCollaborationSetup();
@@ -699,7 +714,8 @@ provider.on("status", ({ connected }: { connected: boolean }) => {
   }
 });
 provider.on("synced", ({ synced }: { synced: boolean }) => {
-  providerReportedSynced = synced;
+  // Keep the first successful sync: y-webrtc may not emit another "synced" after reconnecting.
+  providerReportedSynced ||= synced;
   providerSynced = providerReportedSynced && remoteWebrtcPeerCount > 0;
   renderTabs(roomMembers, activeFileKey, selectFile);
   if (providerSynced) {
@@ -730,9 +746,9 @@ window.addEventListener("offline", () => {
   providerSynced = false;
   showToast("Você está offline. O código permanece salvo neste navegador.");
   if (!collaborationReady) finishCollaborationSetup();
-  if (!collaborationReady) {
+  if (!collaborationReady && !soloMode) {
     setPersonalFileError("Sem conexão. O arquivo pessoal ainda não está disponível.");
-  } else {
+  } else if (collaborationReady) {
     renderTabs(roomMembers, activeFileKey, selectFile);
   }
 });
@@ -744,17 +760,34 @@ window.addEventListener("online", () => {
 function openRoomDialog(): void {
   currentRoomCode!.value = roomCode;
   otherRoomCode!.value = "";
+  clearTimeout(roomDialogFeedbackTimer);
   roomDialogFeedback!.textContent = "";
+  roomDialogFeedback!.classList.remove("success");
   roomDialog!.showModal();
+}
+
+let roomDialogFeedbackTimer: number | undefined;
+
+function showRoomDialogFeedback(message: string, success = false): void {
+  clearTimeout(roomDialogFeedbackTimer);
+  roomDialogFeedback!.textContent = message;
+  roomDialogFeedback!.classList.toggle("success", success);
+  if (success) {
+    roomDialogFeedbackTimer = window.setTimeout(() => {
+      roomDialogFeedback!.textContent = "";
+      roomDialogFeedback!.classList.remove("success");
+      roomDialogFeedbackTimer = undefined;
+    }, 2500);
+  }
 }
 
 async function copyRoomCode(): Promise<void> {
   try {
     await navigator.clipboard.writeText(roomCode);
-    showToast(`Código ${roomCode} copiado.`);
+    showRoomDialogFeedback(`Código ${roomCode} copiado.`, true);
   } catch (error) {
     console.error("Não foi possível copiar o código da sala:", error);
-    roomDialogFeedback!.textContent = "Não foi possível copiar automaticamente. Selecione e copie o código.";
+    showRoomDialogFeedback("Não foi possível copiar automaticamente. Selecione e copie o código.");
     currentRoomCode!.select();
   }
 }
@@ -763,6 +796,9 @@ usersButton!.addEventListener("click", () => {
   membersPanel!.hidden = !membersPanel!.hidden;
 });
 inviteUsersButton!.addEventListener("click", openRoomDialog);
+leaveRoomButton!.addEventListener("click", () => {
+  void leaveRoomForSolo();
+});
 copyRoomCodeButton!.addEventListener("click", () => void copyRoomCode());
 closeRoomDialog!.addEventListener("click", () => roomDialog!.close());
 otherRoomCode!.addEventListener("input", () => {
@@ -778,7 +814,7 @@ joinRoomForm!.addEventListener("submit", (event) => {
   event.preventDefault();
   const requestedRoom = otherRoomCode!.value.trim().toUpperCase();
   if (!/^[A-Z0-9]{4,12}$/.test(requestedRoom)) {
-    roomDialogFeedback!.textContent = "Digite um código de sala válido (4 a 12 letras ou números).";
+    showRoomDialogFeedback("Digite um código de sala válido (4 a 12 letras ou números).");
     return;
   }
   location.assign(`${location.pathname}?room=${requestedRoom}`);
@@ -789,6 +825,27 @@ document.addEventListener("click", (event) => {
     membersPanel!.hidden = true;
   }
 });
+
+async function leaveRoomForSolo(): Promise<void> {
+  leaveRoomButton!.disabled = true;
+  try {
+    if (roomCleanup) {
+      await roomCleanup();
+      roomCleanup = undefined;
+    }
+
+    provider.disconnect();
+    const soloUrl = new URL(location.href);
+    soloUrl.searchParams.set("room", createRoomCode());
+    soloUrl.searchParams.set("solo", "1");
+    soloUrl.searchParams.delete("generated");
+    location.assign(soloUrl);
+  } catch (error) {
+    console.error("Não foi possível sair da sala:", error);
+    leaveRoomButton!.disabled = false;
+    showToast("Não foi possível sair da sala. Tente novamente.");
+  }
+}
 
 async function prepareGeneratedRoom(userId: string): Promise<boolean> {
   if (!database || !roomWasGenerated) return false;
@@ -832,6 +889,18 @@ async function prepareGeneratedRoom(userId: string): Promise<boolean> {
 
 async function authenticateAndJoin(): Promise<void> {
   localOnlyFallback = false;
+  if (soloMode) {
+    provider.disconnect();
+    localOnlyFallback = true;
+    isRoomOwner = true;
+    roomMembers = {};
+    usersButton!.hidden = true;
+    inviteUsersButton!.hidden = true;
+    leaveRoomButton!.hidden = true;
+    renderTabs(roomMembers, activeFileKey, selectFile);
+    finishCollaborationSetup();
+    return;
+  }
   if (!firebaseApp) {
     usersButton!.textContent = "Sala indisponível";
     setPersonalFileError("Firebase ainda não configurado. Crie o arquivo .env.local.");
@@ -843,12 +912,15 @@ async function authenticateAndJoin(): Promise<void> {
     const { user } = await signInAnonymously(auth);
     if (await prepareGeneratedRoom(user.uid)) return;
     usersButton!.textContent = `Usuários (1/${MAX_ROOM_MEMBERS})`;
-    const { isOwner, ownerId, members } = await joinRoom(roomCode, user.uid);
+    const joinedRoom = await joinRoom(roomCode, user.uid);
+    roomCleanup = joinedRoom.cleanup;
+    const { isOwner, ownerId, members } = joinedRoom;
     isRoomOwner = isOwner;
     roomOwnerId = ownerId;
     roomMembers = members;
     roomJoined = true;
     localOnlyFallback = false;
+    leaveRoomButton!.hidden = false;
     if (
       Object.keys(roomMembers).some((memberId) => memberId !== user.uid) &&
       !providerSynced
@@ -898,7 +970,9 @@ async function authenticateAndJoin(): Promise<void> {
   }
 }
 
-if (requiredConfig.some((value) => !value)) {
+if (soloMode) {
+  void authenticateAndJoin();
+} else if (requiredConfig.some((value) => !value)) {
   usersButton!.textContent = "Sala indisponível";
   setPersonalFileError("Firebase ainda não configurado. Crie o arquivo .env.local.");
 } else {

@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously } from "firebase/auth";
 import {
+  get,
   getDatabase,
   onDisconnect,
   onValue,
@@ -9,12 +10,17 @@ import {
   runTransaction,
   serverTimestamp,
   set,
+  type Database,
+  update,
 } from "firebase/database";
 import * as Y from "yjs";
 import { IndexeddbPersistence } from "y-indexeddb";
 import { WebrtcProvider } from "y-webrtc";
 
 const MAX_ROOM_MEMBERS = 8;
+const MEMBER_HEARTBEAT_INTERVAL_MS = 15_000;
+const MEMBER_STALE_AFTER_MS = 120_000;
+const COLLABORATION_SYNC_TIMEOUT_MS = 20_000;
 const editor = document.querySelector<HTMLTextAreaElement>("#codeEditor");
 const usersButton = document.querySelector<HTMLButtonElement>("#usersButton");
 const inviteUsersButton = document.querySelector<HTMLButtonElement>("#inviteUsersButton");
@@ -82,12 +88,19 @@ function createRoomCode(): string {
   return crypto.randomUUID().replaceAll("-", "").slice(0, 6).toUpperCase();
 }
 
+let roomWasGenerated = false;
+
 function getRoomCode(): string {
-  const room = new URLSearchParams(location.search).get("room");
+  const search = new URLSearchParams(location.search);
+  const room = search.get("room");
+  roomWasGenerated = search.get("generated") === "1";
   if (room && /^[A-Z0-9]{4,12}$/i.test(room)) return room.toUpperCase();
 
   const code = createRoomCode();
-  history.replaceState(null, "", `${location.pathname}?room=${code}`);
+  roomWasGenerated = true;
+  search.set("room", code);
+  search.set("generated", "1");
+  history.replaceState(null, "", `${location.pathname}?${search}`);
   return code;
 }
 
@@ -266,15 +279,49 @@ async function joinRoom(
   userId: string,
 ): Promise<{ cleanup: () => void; isOwner: boolean; ownerId: string; members: Record<string, unknown> }> {
   if (!database) throw new Error("Firebase ainda não foi configurado.");
-  const roomRef = ref(database, `rooms/${roomCode}`);
-  const membersRef = ref(database, `rooms/${roomCode}/members`);
-  const memberRef = ref(database, `rooms/${roomCode}/members/${userId}`);
-  const connectedRef = ref(database, ".info/connected");
+  const activeDatabase: Database = database;
+  const roomRef = ref(activeDatabase, `rooms/${roomCode}`);
+  const membersRef = ref(activeDatabase, `rooms/${roomCode}/members`);
+  const memberRef = ref(activeDatabase, `rooms/${roomCode}/members/${userId}`);
+  const connectedRef = ref(activeDatabase, ".info/connected");
   let databaseConnected = navigator.onLine;
   const connectedListener = onValue(connectedRef, (snapshot) => {
     databaseConnected = snapshot.val() === true;
   });
   let latestMembers: Record<string, unknown> = {};
+  const legacyMemberSeenAt = new Map<string, number>();
+
+  function isStaleMember(memberId: string, member: unknown): boolean {
+    if (memberId === userId || !member || typeof member !== "object") return false;
+    const lastSeen = "lastSeen" in member ? member.lastSeen : undefined;
+    if (typeof lastSeen === "number") {
+      legacyMemberSeenAt.delete(memberId);
+      return Date.now() - lastSeen > MEMBER_STALE_AFTER_MS;
+    }
+
+    const firstSeen = legacyMemberSeenAt.get(memberId) ?? Date.now();
+    legacyMemberSeenAt.set(memberId, firstSeen);
+    return Date.now() - firstSeen > MEMBER_STALE_AFTER_MS;
+  }
+
+  function pruneInactiveMembers(members: Record<string, unknown>): void {
+    if (!databaseConnected || !navigator.onLine) return;
+    for (const [memberId, member] of Object.entries(members)) {
+      if (!isStaleMember(memberId, member)) continue;
+      const staleSince = legacyMemberSeenAt.get(memberId);
+      void runTransaction(ref(activeDatabase, `rooms/${roomCode}/members/${memberId}`), (current) => {
+        if (!current || typeof current !== "object") return;
+        const lastSeen = "lastSeen" in current ? current.lastSeen : undefined;
+        const stillStale = typeof lastSeen === "number"
+          ? Date.now() - lastSeen > MEMBER_STALE_AFTER_MS
+          : staleSince !== undefined && Date.now() - staleSince > MEMBER_STALE_AFTER_MS;
+        return stillStale ? null : undefined;
+      }).catch((error: unknown) => {
+        console.error(`Não foi possível limpar a presença expirada de ${memberId}:`, error);
+      });
+    }
+  }
+
   const membersListener = onValue(membersRef, (snapshot) => {
     const nextMembers = snapshot.val() ?? {};
     if (Object.keys(roomMembers).length > 0 && (!navigator.onLine || !databaseConnected)) {
@@ -282,6 +329,7 @@ async function joinRoom(
       renderTabs(roomMembers, activeFileKey, selectFile);
       return;
     }
+    pruneInactiveMembers(nextMembers);
     latestMembers = nextMembers;
     roomMembers = latestMembers;
     try {
@@ -291,16 +339,21 @@ async function joinRoom(
     }
     renderMembers(latestMembers);
     renderTabs(roomMembers, activeFileKey, selectFile);
+    finishCollaborationSetup();
   });
+  let heartbeatTimer: number | undefined;
   try {
     const result = await runTransaction(roomRef, (room) => {
-      const members = room?.members ?? {};
+      const members = { ...(room?.members ?? {}) };
+      for (const [memberId, member] of Object.entries(members)) {
+        if (isStaleMember(memberId, member)) delete members[memberId];
+      }
       const memberCount = Object.keys(members).length;
       if (memberCount >= MAX_ROOM_MEMBERS && !members[userId]) return null;
 
       return {
         createdAt: room?.createdAt ?? serverTimestamp(),
-        ownerId: room?.ownerId ?? userId,
+        ownerId: room?.ownerId && members[room.ownerId] ? room.ownerId : userId,
         members: { ...members, [userId]: { name: getUserName() } },
         maxMembers: MAX_ROOM_MEMBERS,
       };
@@ -311,7 +364,18 @@ async function joinRoom(
     }
 
     await onDisconnect(memberRef).remove();
-    await set(memberRef, { name: getUserName() });
+    await set(memberRef, { name: getUserName(), lastSeen: serverTimestamp() });
+    let heartbeatFailureReported = false;
+    heartbeatTimer = window.setInterval(() => {
+      if (!databaseConnected || !navigator.onLine) return;
+      void update(memberRef, { name: getUserName(), lastSeen: serverTimestamp() }).catch((error: unknown) => {
+        console.error("Não foi possível atualizar a presença na sala:", error);
+        if (!heartbeatFailureReported) {
+          heartbeatFailureReported = true;
+          showToast("A presença da sala não está sendo atualizada. Verifique a conexão.");
+        }
+      });
+    }, MEMBER_HEARTBEAT_INTERVAL_MS);
     latestMembers = result.snapshot.child("members").val() ?? latestMembers;
     roomMembers = latestMembers;
     const ownerId = result.snapshot.child("ownerId").val() as string;
@@ -330,9 +394,12 @@ async function joinRoom(
       ownerId,
       members: latestMembers,
       cleanup: () => {
+        if (heartbeatTimer !== undefined) window.clearInterval(heartbeatTimer);
         membersListener();
         connectedListener();
-        void remove(memberRef);
+        void remove(memberRef).catch((error: unknown) => {
+          console.error("Não foi possível remover a presença ao sair da sala:", error);
+        });
       },
     };
   } catch (error) {
@@ -355,7 +422,9 @@ let applyingRemoteChange = false;
 let collaborationReady = false;
 let roomJoined = false;
 let providerSynced = false;
+let providerReportedSynced = false;
 let remoteWebrtcPeerCount = 0;
+let syncWaitTimeout: number | undefined;
 let localPersistenceReady = false;
 let localPersistenceFailed = false;
 let localOnlyFallback = false;
@@ -551,6 +620,10 @@ function finishCollaborationSetup(): void {
   const hasUsableOfflineCopy = personalFile.length > 0 &&
     (localOnlyFallback || !navigator.onLine) && localPersistenceReady;
   if (!providerSynced && hasOtherRoomMembers && !hasUsableOfflineCopy) return;
+  if (syncWaitTimeout !== undefined) {
+    window.clearTimeout(syncWaitTimeout);
+    syncWaitTimeout = undefined;
+  }
 
   if (personalFile.length === 0) {
     if (!providerSynced && (!navigator.onLine || hasOtherRoomMembers)) {
@@ -612,9 +685,12 @@ editor!.addEventListener("blur", stopLocalTyping);
 
 provider.awareness.on("change", updateTypingIndicators);
 provider.on("peers", ({ webrtcPeers }: { webrtcPeers: string[] }) => {
+  const hadPeers = remoteWebrtcPeerCount > 0;
   remoteWebrtcPeerCount = webrtcPeers.length;
-  if (remoteWebrtcPeerCount === 0) providerSynced = false;
+  if (hadPeers && remoteWebrtcPeerCount === 0) providerReportedSynced = false;
+  providerSynced = providerReportedSynced && remoteWebrtcPeerCount > 0;
   renderTabs(roomMembers, activeFileKey, selectFile);
+  if (providerSynced) finishCollaborationSetup();
 });
 provider.on("status", ({ connected }: { connected: boolean }) => {
   if (!connected) {
@@ -623,7 +699,8 @@ provider.on("status", ({ connected }: { connected: boolean }) => {
   }
 });
 provider.on("synced", ({ synced }: { synced: boolean }) => {
-  providerSynced = synced && remoteWebrtcPeerCount > 0;
+  providerReportedSynced = synced;
+  providerSynced = providerReportedSynced && remoteWebrtcPeerCount > 0;
   renderTabs(roomMembers, activeFileKey, selectFile);
   if (providerSynced) {
     finishCollaborationSetup();
@@ -713,6 +790,46 @@ document.addEventListener("click", (event) => {
   }
 });
 
+async function prepareGeneratedRoom(userId: string): Promise<boolean> {
+  if (!database || !roomWasGenerated) return false;
+  const currentRoomRef = ref(database, `users/${userId}/currentRoom`);
+  const currentRoomSnapshot = await get(currentRoomRef);
+  const previousRoomCode = currentRoomSnapshot.val();
+  if (
+    typeof previousRoomCode !== "string" ||
+    !/^[A-Z0-9]{4,12}$/.test(previousRoomCode) ||
+    previousRoomCode === roomCode
+  ) return false;
+
+  const previousRoomRef = ref(database, `rooms/${previousRoomCode}`);
+  const cleanupResult = await runTransaction(previousRoomRef, (previousRoom) => {
+    if (!previousRoom || previousRoom.ownerId !== userId) return;
+    const members = previousRoom.members ?? {};
+    if (Object.keys(members).some((memberId) => memberId !== userId)) return;
+    return null;
+  });
+  if (cleanupResult.committed) return false;
+
+  const previousRoom = cleanupResult.snapshot.val() as {
+    ownerId?: unknown;
+    members?: Record<string, unknown>;
+  } | null;
+  if (previousRoom?.ownerId !== userId) return false;
+  const otherMembers = Object.keys(previousRoom.members ?? {}).filter(
+    (memberId) => memberId !== userId,
+  );
+  if (otherMembers.length > 0) {
+    const url = new URL(location.href);
+    url.searchParams.set("room", previousRoomCode);
+    url.searchParams.delete("generated");
+    location.replace(url);
+    return true;
+  }
+
+  await remove(previousRoomRef);
+  return false;
+}
+
 async function authenticateAndJoin(): Promise<void> {
   localOnlyFallback = false;
   if (!firebaseApp) {
@@ -724,6 +841,7 @@ async function authenticateAndJoin(): Promise<void> {
   const auth = getAuth(firebaseApp);
   try {
     const { user } = await signInAnonymously(auth);
+    if (await prepareGeneratedRoom(user.uid)) return;
     usersButton!.textContent = `Usuários (1/${MAX_ROOM_MEMBERS})`;
     const { isOwner, ownerId, members } = await joinRoom(roomCode, user.uid);
     isRoomOwner = isOwner;
@@ -731,7 +849,32 @@ async function authenticateAndJoin(): Promise<void> {
     roomMembers = members;
     roomJoined = true;
     localOnlyFallback = false;
+    if (
+      Object.keys(roomMembers).some((memberId) => memberId !== user.uid) &&
+      !providerSynced
+    ) {
+      syncWaitTimeout = window.setTimeout(() => {
+        if (!collaborationReady && roomJoined) {
+          setPersonalFileError(
+            "A sala ainda mostra participantes sem sincronização. Verifique a conexão; presenças inativas serão removidas automaticamente.",
+          );
+        }
+      }, COLLABORATION_SYNC_TIMEOUT_MS);
+    }
     cacheRoomState(roomCode, roomMembers, user.uid, ownerId);
+    if (isOwner && database) {
+      try {
+        await set(ref(database, `users/${user.uid}/currentRoom`), roomCode);
+      } catch (error) {
+        console.error("Não foi possível registrar a sala atual do usuário:", error);
+        showToast("A sala foi aberta, mas não foi possível registrar sua sala principal.");
+      }
+    }
+    if (roomWasGenerated) {
+      const url = new URL(location.href);
+      url.searchParams.delete("generated");
+      history.replaceState(null, "", url);
+    }
     renderTabs(roomMembers, activeFileKey, selectFile);
     finishCollaborationSetup();
   } catch (error) {
@@ -764,7 +907,12 @@ if (requiredConfig.some((value) => !value)) {
     const name = (event as CustomEvent<{ name?: unknown }>).detail?.name;
     const user = getAuth(firebaseApp!).currentUser;
     if (!database || !user || typeof name !== "string" || !name.trim()) return;
-    void set(ref(database, `rooms/${roomCode}/members/${user.uid}`), { name: name.trim() });
+    void update(ref(database, `rooms/${roomCode}/members/${user.uid}`), {
+      name: name.trim(),
+    }).catch((error: unknown) => {
+      console.error("Não foi possível atualizar o nome na sala:", error);
+      showToast("Não foi possível atualizar seu nome na lista da sala.");
+    });
   });
 }
 

@@ -111,7 +111,8 @@ export function validateRunInput(value: unknown): RunValidation {
 }
 
 export function getCompilerOptions(): string {
-  return wrappedFunctions.map((name) => `-Wl,--wrap=${name}`).join(" ");
+  const linkerOptions = wrappedFunctions.map((name) => `-Wl,--wrap=${name}`);
+  return [...linkerOptions, "-lm"].join(" ");
 }
 
 export function createInstrumentedSource(

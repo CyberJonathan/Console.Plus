@@ -71,7 +71,7 @@ VITE_FIREBASE_PROJECT_ID=
 VITE_FIREBASE_STORAGE_BUCKET=
 VITE_FIREBASE_MESSAGING_SENDER_ID=
 VITE_FIREBASE_APP_ID=
-VITE_YJS_SIGNALING_URL=wss://y-webrtc-eu.fly.dev
+VITE_YJS_SIGNALING_URL=ws://localhost:5173/signaling
 ```
 
 No Firebase:
@@ -192,13 +192,21 @@ evitar abrir um documento vazio. Falha de DNS, WebSocket bloqueado ou uma rede
 que impeça a conexão WebRTC direta pode deixar a presença funcionando enquanto
 o arquivo não sincroniza.
 
-Para diagnosticar uma publicação, confira no console/rede do navegador a URL
-WebSocket usada pelo app e se ela conecta nos dois dispositivos. A configuração
-`VITE_YJS_SIGNALING_URL` é incorporada ao frontend durante o build: mudar uma
-variável na Vercel exige um novo deploy. Se estiver ausente, o app usa os
-servidores públicos `wss://y-webrtc-eu.fly.dev` e
-`wss://y-webrtc-us.fly.dev`; o endereço antigo
-`wss://signaling.yjs.dev` é migrado para esses endereços.
+Os endereços públicos que eram usados como padrão podem falhar: o hostname
+`y-webrtc-us.fly.dev` não resolve atualmente, e houve uma reprodução
+independente de falha de sinalização com o servidor europeu e `y-webrtc 10.3.0`
+([issue 73 do y-webrtc](https://github.com/yjs/y-webrtc/issues/73)). Por isso,
+este projeto inclui o endpoint WebSocket `/signaling` no mesmo backend Express
+usado pela API local/Render. Ele apenas encaminha mensagens efêmeras de
+negociação; não persiste nem substitui o conteúdo Yjs.
+
+No desenvolvimento, `VITE_YJS_SIGNALING_URL=ws://localhost:5173/signaling` usa
+o proxy WebSocket do Vite para o backend em `localhost:3001`. Na produção, use
+o domínio do backend Render já existente, por exemplo
+`wss://SEU-BACKEND.onrender.com/signaling`. Configure esse valor como
+`VITE_YJS_SIGNALING_URL` no ambiente de build do frontend na Vercel e faça um
+novo deploy. Não é necessário criar outro serviço; o backend atual precisa ser
+redeployado com o endpoint incluído.
 
 Para abrir o painel de diagnóstico, acrescente `?debug=1` à URL (ou
 `&debug=1` se ela já tiver parâmetros). Ele mostra os estados do signaling,
@@ -209,7 +217,9 @@ Se a sincronização WebRTC não terminar em 10 segundos enquanto houver outros
 participantes, o app informa **“Sincronizando... a conexão está demorando”** e
 oferece **“Tentar novamente”**. A ação recria o provider da mesma sala; o
 documento Yjs e o arquivo local são preservados. O arquivo próprio permanece
-editável enquanto a conexão é restabelecida.
+editável enquanto a conexão é restabelecida. Se o WebSocket de signaling não
+conectar, o retry sozinho não resolve: confira a URL configurada e se o backend
+está acessível.
 
 O provider configura os servidores STUN públicos `stun:stun.l.google.com:19302`
 e `stun:stun1.l.google.com:19302` para ajudar na negociação de conexões diretas.
@@ -221,26 +231,12 @@ tela.
 
 ### É obrigatório hospedar outro serviço?
 
-Não necessariamente. Há algumas opções:
-
-1. **Usar os servidores públicos:** não exige configurar outro serviço, desde
-   que eles estejam acessíveis pelos navegadores dos participantes.
-2. **Usar o Render já existente:** é possível hospedar a sinalização no mesmo
-   serviço Node do backend, integrando o protocolo WebSocket ao servidor HTTP
-   existente. Isso requer uma alteração no backend; o comando `npm run
-   signaling` atual inicia um servidor independente. Também é possível criar
-   outro serviço Web no Render a partir deste repositório, sem mudar a API
-   atual.
-3. **Usar outro transporte de documentos:** sincronizar os documentos Yjs pelo
-   Firebase Realtime Database ou outro serviço é uma alternativa, mas exige
-   implementar e validar um provider de sincronização, além de rever regras,
-   permissões, limites e custos. Não é uma configuração que possa ser ativada
-   apenas na Vercel.
-
-Docker é apenas uma forma opcional de empacotar o servidor independente; não é
-obrigatório e não faz o serviço rodar no computador do desenvolvedor. Vercel
-continua podendo hospedar o frontend e as funções de execução. O backend/API no
-Render também pode continuar como está.
+Não. O endpoint `/signaling` roda no mesmo processo HTTP do backend Express
+existente e pode ser publicado no serviço Render que já hospeda a API. Vercel
+continua hospedando o frontend e as funções de execução; configure o endereço
+WebSocket do Render em `VITE_YJS_SIGNALING_URL` e gere um novo deploy do
+frontend. O comando `npm run signaling` ainda pode iniciar o servidor
+independente para testes, mas não é necessário para esse arranjo.
 
 Por fim, signaling e transporte WebRTC não garantem que toda rede permita uma
 conexão direta entre navegadores. Redes restritivas podem exigir um servidor
@@ -270,9 +266,10 @@ saiam; o contador então mostra `1/8`. Ao sair, o usuário remove somente a
 própria presença e abre uma sessão solo com documento Yjs e cache IndexedDB
 separados.
 
-Para publicar o app, configure as variáveis `VITE_FIREBASE_*` e, se usar um
-servidor próprio, `VITE_YJS_SIGNALING_URL` no ambiente de build do frontend.
-Em uma hospedagem como Vercel, configure também `JUDGE0_URL`, `JUDGE0_TIMEOUT_MS` e, se
+Para publicar o app, configure as variáveis `VITE_FIREBASE_*` e
+`VITE_YJS_SIGNALING_URL` (URL `wss://.../signaling` do backend Render) no
+ambiente de build do frontend. Em uma hospedagem como Vercel, configure também
+`JUDGE0_URL`, `JUDGE0_TIMEOUT_MS` e, se
 necessário, `JUDGE0_AUTH_TOKEN` como variáveis exclusivas do servidor. A
 função serverless de execução é descoberta a partir de `api/run.ts`.
 

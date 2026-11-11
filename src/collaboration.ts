@@ -503,14 +503,40 @@ if (soloMode) {
 }
 const ydoc = new Y.Doc();
 const localPersistence = new IndexeddbPersistence(`console-room-${roomCode}`, ydoc);
-const configuredSignalingUrl = import.meta.env.VITE_YJS_SIGNALING_URL;
-const defaultSignalingUrls = ["wss://y-webrtc-eu.fly.dev", "wss://y-webrtc-us.fly.dev"];
-const signalingUrls = !configuredSignalingUrl ||
-    configuredSignalingUrl === defaultSignalingUrls[0] ||
-    configuredSignalingUrl === "wss://signaling.yjs.dev" ||
-    configuredSignalingUrl === "wss://signaling.yjs.dev/"
-  ? defaultSignalingUrls
-  : [configuredSignalingUrl];
+const configuredSignalingUrl = import.meta.env.VITE_YJS_SIGNALING_URL?.trim();
+const obsoleteSignalingHosts = new Set([
+  "y-webrtc-eu.fly.dev",
+  "y-webrtc-us.fly.dev",
+  "signaling.yjs.dev",
+  "y-webrtc-signaling-eu.herokuapp.com",
+  "y-webrtc-signaling-us.herokuapp.com",
+]);
+let configuredSignalingHost: string | null = null;
+let signalingConfigurationValid = true;
+if (configuredSignalingUrl) {
+  try {
+    const parsedSignalingUrl = new URL(configuredSignalingUrl);
+    if (parsedSignalingUrl.protocol !== "ws:" && parsedSignalingUrl.protocol !== "wss:") {
+      throw new Error("A URL de signaling precisa usar ws:// ou wss://.");
+    }
+    configuredSignalingHost = parsedSignalingUrl.hostname;
+  } catch (error) {
+    signalingConfigurationValid = false;
+    console.error("URL de signaling inválida:", error);
+    showToast("A URL de signaling é inválida. Use ws:// ou wss://.");
+  }
+}
+const isObsoleteSignalingUrl = configuredSignalingHost !== null &&
+  obsoleteSignalingHosts.has(configuredSignalingHost);
+const localSignalingUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/signaling`;
+const signalingUrls = signalingConfigurationValid && configuredSignalingUrl && !isObsoleteSignalingUrl
+  ? [configuredSignalingUrl]
+  : import.meta.env.DEV
+    ? [localSignalingUrl]
+    : [];
+if (signalingUrls.length === 0 && signalingConfigurationValid) {
+  showToast("Sinalização não configurada. Defina VITE_YJS_SIGNALING_URL para o WebSocket do backend.");
+}
 const peerOpts = {
   config: {
     iceServers: [
@@ -615,7 +641,9 @@ function renderDebugPanel(): void {
     `Sala: ${roomCode} | UID: ${uid} | Membros Firebase: ${Object.keys(roomMembers).length}`,
     `provider.connected: ${provider.connected} | provider.synced: ${provider.room?.synced ?? false} | peers WebRTC: ${provider.room?.webrtcConns.size ?? 0}`,
     `Awareness states: ${provider.awareness.getStates().size}`,
-    ...connections.map((connection) => `Signaling: ${connection}`),
+    ...(connections.length > 0
+      ? connections.map((connection) => `Signaling: ${connection}`)
+      : ["Signaling: não configurado"]),
   ].join("\n");
   debugLog.replaceChildren(...debugEvents.map((entry) => {
     const item = document.createElement("li");

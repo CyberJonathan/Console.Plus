@@ -203,8 +203,13 @@ function renderTabs(
   activeFileKey: string,
   onSelect: (fileKey: string) => void,
 ): void {
-  tabs!.replaceChildren();
   const fileKeys = Object.keys(members).map((userId) => `personal:${userId}`);
+  if (fileKeys.length === 0) {
+    const initialTab = tabs!.querySelector<HTMLButtonElement>(".tab");
+    if (initialTab) applyPersonalFileState(initialTab);
+    return;
+  }
+  tabs!.replaceChildren();
 
   for (const fileKey of fileKeys) {
     const tab = document.createElement("button");
@@ -233,7 +238,16 @@ function renderTabs(
     name.className = "tab-name";
     name.textContent = fileLabel(fileKey, members);
     tab.append(dots, name);
-    tab.addEventListener("click", () => onSelect(fileKey));
+    if (localFile) {
+      applyPersonalFileState(tab);
+    }
+    tab.addEventListener("click", () => {
+      if (localFile && personalFileState === "error") {
+        retryPersonalFileLoad();
+        return;
+      }
+      onSelect(fileKey);
+    });
     tabs!.append(tab);
   }
   updateTypingIndicators();
@@ -270,50 +284,54 @@ async function joinRoom(
     renderMembers(latestMembers);
     renderTabs(roomMembers, activeFileKey, selectFile);
   });
-  const result = await runTransaction(roomRef, (room) => {
-    const members = room?.members ?? {};
-    const memberCount = Object.keys(members).length;
-    if (memberCount >= MAX_ROOM_MEMBERS && !members[userId]) return null;
+  try {
+    const result = await runTransaction(roomRef, (room) => {
+      const members = room?.members ?? {};
+      const memberCount = Object.keys(members).length;
+      if (memberCount >= MAX_ROOM_MEMBERS && !members[userId]) return null;
+
+      return {
+        createdAt: room?.createdAt ?? serverTimestamp(),
+        ownerId: room?.ownerId ?? userId,
+        members: { ...members, [userId]: { name: getUserName() } },
+        maxMembers: MAX_ROOM_MEMBERS,
+      };
+    });
+
+    if (!result.committed) {
+      throw new Error(`Esta sala já está cheia. O limite é de ${MAX_ROOM_MEMBERS} pessoas.`);
+    }
+
+    await onDisconnect(memberRef).remove();
+    await set(memberRef, { name: getUserName() });
+    latestMembers = result.snapshot.child("members").val() ?? latestMembers;
+    roomMembers = latestMembers;
+    const ownerId = result.snapshot.child("ownerId").val() as string;
+    roomOwnerId = ownerId;
+    cacheRoomState(
+      roomCode,
+      roomMembers,
+      userId,
+      ownerId,
+    );
+    renderTabs(roomMembers, activeFileKey, selectFile);
+    renderMembers(latestMembers);
 
     return {
-      createdAt: room?.createdAt ?? serverTimestamp(),
-      ownerId: room?.ownerId ?? userId,
-      members: { ...members, [userId]: { name: getUserName() } },
-      maxMembers: MAX_ROOM_MEMBERS,
+      isOwner: ownerId === userId,
+      ownerId,
+      members: latestMembers,
+      cleanup: () => {
+        membersListener();
+        connectedListener();
+        void remove(memberRef);
+      },
     };
-  });
-
-  if (!result.committed) {
+  } catch (error) {
     membersListener();
     connectedListener();
-    throw new Error(`Esta sala já está cheia. O limite é de ${MAX_ROOM_MEMBERS} pessoas.`);
+    throw error;
   }
-
-  await onDisconnect(memberRef).remove();
-  await set(memberRef, { name: getUserName() });
-  latestMembers = result.snapshot.child("members").val() ?? latestMembers;
-  roomMembers = latestMembers;
-  const ownerId = result.snapshot.child("ownerId").val() as string;
-  roomOwnerId = ownerId;
-  cacheRoomState(
-    roomCode,
-    roomMembers,
-    userId,
-    ownerId,
-  );
-  renderTabs(roomMembers, activeFileKey, selectFile);
-  renderMembers(latestMembers);
-
-  return {
-    isOwner: ownerId === userId,
-    ownerId,
-    members: latestMembers,
-    cleanup: () => {
-      membersListener();
-      connectedListener();
-      void remove(memberRef);
-    },
-  };
 }
 
 const roomCode = getRoomCode();
@@ -329,16 +347,20 @@ let applyingRemoteChange = false;
 let collaborationReady = false;
 let roomJoined = false;
 let providerSynced = false;
+let remoteWebrtcPeerCount = 0;
 let localPersistenceReady = false;
+let localPersistenceFailed = false;
+let localOnlyFallback = false;
 let isRoomOwner = false;
 let roomMembers: Record<string, unknown> = getCachedRoomMembers(roomCode);
+let personalFileState: "loading" | "ready" | "error" = "loading";
+let personalFileError = "";
 let lastEditorValue = "";
 let typingIdleTimeout: number | undefined;
 let localTyping = false;
 const cachedUserId = localStorage.getItem(`console-room-user:${roomCode}`);
 let roomOwnerId = localStorage.getItem(`console-room-owner:${roomCode}`);
 if (cachedUserId) {
-  roomJoined = true;
   isRoomOwner = roomOwnerId === cachedUserId || roomOwnerId === "true";
   if (roomOwnerId === "true") roomOwnerId = cachedUserId;
   renderMembers(roomMembers);
@@ -347,6 +369,53 @@ if (cachedUserId) {
 
 function getOrCreateFile(fileKey: string): Y.Text {
   return ydoc.getText(`console-file-${fileKey}`);
+}
+
+function applyPersonalFileState(tab: HTMLButtonElement): void {
+  const isLoading = personalFileState === "loading";
+  const hasError = personalFileState === "error";
+  tab.classList.toggle("loading", isLoading);
+  tab.classList.toggle("load-error", hasError);
+  tab.setAttribute("aria-busy", String(isLoading));
+
+  const errorIndicator = tab.querySelector<HTMLElement>(".tab-load-error");
+  if (hasError && !errorIndicator) {
+    const indicator = document.createElement("span");
+    indicator.className = "tab-load-error";
+    indicator.setAttribute("aria-hidden", "true");
+    indicator.textContent = "!";
+    tab.insertBefore(indicator, tab.querySelector(".tab-name"));
+  } else if (!hasError) {
+    errorIndicator?.remove();
+  }
+}
+
+function renderPersonalFileState(): void {
+  renderTabs(roomMembers, activeFileKey, selectFile);
+  const uid = getLocalUserId();
+  const personalTab = uid
+    ? tabs!.querySelector<HTMLButtonElement>(`.tab[data-file-key="personal:${uid}"]`)
+    : null;
+  const tab = personalTab ?? tabs!.querySelector<HTMLButtonElement>(".tab");
+  if (tab && !personalTab) applyPersonalFileState(tab);
+  const tabLabel = tab?.dataset.fileKey?.startsWith("personal:")
+    ? fileLabel(tab.dataset.fileKey, roomMembers)
+    : "main.c";
+  if (tab && personalFileState === "error") {
+    const labels = [tabLabel, personalFileError];
+    tab.setAttribute("aria-label", labels.join(", "));
+    tab.title = `${personalFileError} Clique para tentar novamente.`;
+  } else if (tab && personalFileState === "loading") {
+    tab.setAttribute("aria-label", `${tabLabel}, carregando`);
+    tab.title = "Aguardando a disponibilidade do arquivo pessoal.";
+  }
+}
+
+function setPersonalFileError(message: string): void {
+  personalFileState = "error";
+  personalFileError = message;
+  renderPersonalFileState();
+  showToast(message);
 }
 
 function updateTypingIndicators(): void {
@@ -366,11 +435,23 @@ function updateTypingIndicators(): void {
       fileLabel(fileKey, roomMembers),
       ...(isOwnerFile ? ["dono da sala"] : []),
       ...(isTyping ? ["em edição"] : []),
+      ...(fileKey === `personal:${getLocalUserId()}` && personalFileState === "loading"
+        ? ["carregando"]
+        : []),
+      ...(fileKey === `personal:${getLocalUserId()}` && personalFileState === "error"
+        ? [personalFileError]
+        : []),
     ];
     tab.setAttribute("aria-label", labelParts.join(", "));
     tab.title = [
       ...(isOwnerFile ? ["Arquivo do dono da sala"] : []),
       ...(isTyping ? ["Um participante está editando este arquivo"] : []),
+      ...(fileKey === `personal:${getLocalUserId()}` && personalFileState === "loading"
+        ? ["Aguardando a disponibilidade do arquivo pessoal"]
+        : []),
+      ...(fileKey === `personal:${getLocalUserId()}` && personalFileState === "error"
+        ? [personalFileError, "Clique para tentar novamente"]
+        : []),
     ].join(" · ");
   });
   if (localTyping && activeFileKey === "main.c") {
@@ -440,15 +521,54 @@ function selectFile(fileKey: string): void {
 
 function finishCollaborationSetup(): void {
   const userId = getLocalUserId();
-  if (collaborationReady || !roomJoined || !localPersistenceReady || !userId) return;
+  if (
+    collaborationReady || (!roomJoined && !localOnlyFallback) ||
+    (!localPersistenceReady && !localPersistenceFailed) || !userId
+  ) return;
   const personalFile = getOrCreateFile(`personal:${userId}`);
+
+  const hasOtherRoomMembers = Object.keys(roomMembers).some((memberId) => memberId !== userId);
+  const hasUsableOfflineCopy = personalFile.length > 0 &&
+    (localOnlyFallback || !navigator.onLine) && localPersistenceReady;
+  if (!providerSynced && hasOtherRoomMembers && !hasUsableOfflineCopy) return;
+
   if (personalFile.length === 0) {
+    if (!providerSynced && (!navigator.onLine || hasOtherRoomMembers)) {
+      setPersonalFileError(
+        "Não foi possível sincronizar o arquivo pessoal. Verifique a conexão e clique para tentar novamente.",
+      );
+      return;
+    }
     personalFile.insert(0, isRoomOwner ? editor!.value : starterCode);
   }
+
   activeFileKey = `personal:${userId}`;
   selectFile(activeFileKey);
   collaborationReady = true;
-  showToast(`Sala ${roomCode} sincronizada.`);
+  personalFileState = "ready";
+  personalFileError = "";
+  renderPersonalFileState();
+  showToast(localOnlyFallback || !navigator.onLine
+    ? "Arquivo pessoal aberto em modo offline."
+    : `Sala ${roomCode} sincronizada.`);
+}
+
+function retryPersonalFileLoad(): void {
+  if (!navigator.onLine) {
+    setPersonalFileError("Sem conexão. Reconecte-se e clique para tentar novamente.");
+    return;
+  }
+
+  personalFileState = "loading";
+  personalFileError = "";
+  renderPersonalFileState();
+  if (roomJoined) {
+    provider.disconnect();
+    provider.connect();
+    finishCollaborationSetup();
+    return;
+  }
+  void authenticateAndJoin();
 }
 
 editor!.addEventListener("input", () => {
@@ -469,34 +589,57 @@ editor!.addEventListener("input", () => {
 editor!.addEventListener("blur", stopLocalTyping);
 
 provider.awareness.on("change", updateTypingIndicators);
+provider.on("peers", ({ webrtcPeers }: { webrtcPeers: string[] }) => {
+  remoteWebrtcPeerCount = webrtcPeers.length;
+  if (remoteWebrtcPeerCount === 0) providerSynced = false;
+  renderTabs(roomMembers, activeFileKey, selectFile);
+});
 provider.on("status", ({ connected }: { connected: boolean }) => {
-  providerSynced = connected && providerSynced;
   if (!connected) {
     showToast("Sem conexão com a sala. As alterações ficam salvas neste navegador e serão sincronizadas ao reconectar.");
     renderTabs(roomMembers, activeFileKey, selectFile);
   }
 });
-provider.on("synced", () => {
-  providerSynced = true;
+provider.on("synced", ({ synced }: { synced: boolean }) => {
+  providerSynced = synced && remoteWebrtcPeerCount > 0;
   renderTabs(roomMembers, activeFileKey, selectFile);
-  finishCollaborationSetup();
+  if (providerSynced) {
+    finishCollaborationSetup();
+  } else if (!synced && roomJoined && !collaborationReady) {
+    setPersonalFileError(
+      "A sincronização do arquivo pessoal foi interrompida. Clique na aba para tentar novamente.",
+    );
+  }
 });
 void localPersistence.whenSynced.then(() => {
   localPersistenceReady = true;
   renderTabs(roomMembers, activeFileKey, selectFile);
   finishCollaborationSetup();
 }).catch((error: unknown) => {
+  localPersistenceFailed = true;
   console.error("Falha ao carregar o cache local Yjs:", error);
-  showToast("Não foi possível carregar o cache local. A colaboração tentará continuar online.");
+  if (providerSynced) {
+    finishCollaborationSetup();
+  } else if (!navigator.onLine) {
+    setPersonalFileError("Não foi possível carregar o arquivo offline. Reconecte-se e tente novamente.");
+  } else {
+    showToast("Não foi possível carregar o cache local. A colaboração tentará continuar online.");
+  }
 });
 
 window.addEventListener("offline", () => {
   providerSynced = false;
   showToast("Você está offline. O código permanece salvo neste navegador.");
-  renderTabs(roomMembers, activeFileKey, selectFile);
+  if (!collaborationReady) finishCollaborationSetup();
+  if (!collaborationReady) {
+    setPersonalFileError("Sem conexão. O arquivo pessoal ainda não está disponível.");
+  } else {
+    renderTabs(roomMembers, activeFileKey, selectFile);
+  }
 });
 window.addEventListener("online", () => {
   showToast("Conexão restaurada. Sincronizando a sala...");
+  if (personalFileState === "error") retryPersonalFileLoad();
 });
 
 function openRoomDialog(): void {
@@ -548,44 +691,61 @@ document.addEventListener("click", (event) => {
   }
 });
 
-if (requiredConfig.some((value) => !value)) {
-  showToast("Firebase ainda não configurado. Crie o arquivo .env.local.");
-} else {
-  const auth = getAuth(firebaseApp!);
-  void signInAnonymously(auth)
-    .then(({ user }) => {
-      usersButton!.textContent = `Usuários (1/${MAX_ROOM_MEMBERS})`;
-      return joinRoom(roomCode, user.uid);
-    })
-    .then(({ isOwner, ownerId, members }) => {
-      isRoomOwner = isOwner;
-      roomOwnerId = ownerId;
-      roomMembers = members;
-      roomJoined = true;
-      cacheRoomState(roomCode, roomMembers, auth.currentUser!.uid, ownerId);
+async function authenticateAndJoin(): Promise<void> {
+  localOnlyFallback = false;
+  if (!firebaseApp) {
+    usersButton!.textContent = "Sala indisponível";
+    setPersonalFileError("Firebase ainda não configurado. Crie o arquivo .env.local.");
+    return;
+  }
+
+  const auth = getAuth(firebaseApp);
+  try {
+    const { user } = await signInAnonymously(auth);
+    usersButton!.textContent = `Usuários (1/${MAX_ROOM_MEMBERS})`;
+    const { isOwner, ownerId, members } = await joinRoom(roomCode, user.uid);
+    isRoomOwner = isOwner;
+    roomOwnerId = ownerId;
+    roomMembers = members;
+    roomJoined = true;
+    localOnlyFallback = false;
+    cacheRoomState(roomCode, roomMembers, user.uid, ownerId);
+    renderTabs(roomMembers, activeFileKey, selectFile);
+    finishCollaborationSetup();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Não foi possível entrar na sala.";
+    const errorCode = error && typeof error === "object" && "code" in error
+      ? String(error.code)
+      : "";
+    if ((!navigator.onLine || /network|unavailable/i.test(errorCode)) && cachedUserId) {
+      localOnlyFallback = true;
+      isRoomOwner = roomOwnerId === cachedUserId || roomOwnerId === "true";
+      if (roomOwnerId === "true") roomOwnerId = cachedUserId;
       renderTabs(roomMembers, activeFileKey, selectFile);
       finishCollaborationSetup();
-    })
-    .catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : "Não foi possível entrar na sala.";
-      const errorCode = error && typeof error === "object" && "code" in error
-        ? String(error.code)
-        : "";
-      if ((!navigator.onLine || /network|unavailable/i.test(errorCode)) && cachedUserId) {
-        roomJoined = true;
-        showToast("Offline: carregando a cópia local da sala.");
-        renderTabs(roomMembers, activeFileKey, selectFile);
-        finishCollaborationSetup();
-      } else {
-        showToast(message);
-        usersButton!.textContent = "Sala indisponível";
+      if (!collaborationReady) {
+        setPersonalFileError("Offline: arquivo pessoal indisponível neste navegador.");
       }
-    });
+    } else {
+      usersButton!.textContent = "Sala indisponível";
+      setPersonalFileError(message);
+    }
+  }
+}
 
+if (requiredConfig.some((value) => !value)) {
+  usersButton!.textContent = "Sala indisponível";
+  setPersonalFileError("Firebase ainda não configurado. Crie o arquivo .env.local.");
+} else {
+  void authenticateAndJoin();
   window.addEventListener("console:user-name-changed", (event) => {
     const name = (event as CustomEvent<{ name?: unknown }>).detail?.name;
-    const user = auth.currentUser;
+    const user = getAuth(firebaseApp!).currentUser;
     if (!database || !user || typeof name !== "string" || !name.trim()) return;
     void set(ref(database, `rooms/${roomCode}/members/${user.uid}`), { name: name.trim() });
   });
 }
+
+tabs!.querySelector<HTMLButtonElement>(".tab")?.addEventListener("click", () => {
+  if (personalFileState === "error") retryPersonalFileLoad();
+});

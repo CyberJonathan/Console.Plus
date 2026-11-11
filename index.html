@@ -539,6 +539,55 @@
         animation-delay: 280ms;
       }
 
+      .tab.loading .tab-dots {
+        opacity: 1;
+      }
+
+      .tab.loading .tab-dot {
+        animation: dotBounce 1.2s ease-in-out infinite;
+      }
+
+      .tab.loading .tab-dot-blue {
+        animation-delay: 0ms;
+      }
+
+      .tab.loading .tab-dot-red {
+        animation-delay: 150ms;
+      }
+
+      .tab.loading .tab-dot-yellow {
+        animation-delay: 300ms;
+      }
+
+      .tab.load-error {
+        cursor: pointer;
+      }
+
+      .tab.load-error .tab-dots {
+        display: none;
+      }
+
+      .tab-load-error {
+        flex: 0 0 auto;
+        color: var(--red);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      @keyframes dotBounce {
+        0%,
+        60%,
+        100% {
+          transform: translateY(0);
+          opacity: 0.65;
+        }
+
+        30% {
+          transform: translateY(-4px);
+          opacity: 1;
+        }
+      }
+
       @keyframes typing-wave {
         0%,
         60%,
@@ -738,13 +787,13 @@
       }
 
       .code-editor::selection {
-        background: rgba(0, 105, 55, 0.62);
-        color: transparent;
+        background: rgba(8, 248, 124, 0.405);
+        color: white;
       }
 
       .code-editor::-moz-selection {
-        background: rgba(0, 105, 55, 0.62);
-        color: transparent;
+        background: rgba(8, 248, 124, 0.405);
+        color: white;
       }
 
       .syntax-keyword,
@@ -1157,7 +1206,7 @@
 
       <!-- Abas de arquivo -->
       <nav class="tabs" aria-label="Arquivos abertos">
-        <button class="tab active" type="button" aria-selected="true">
+        <button class="tab active loading" type="button" aria-selected="true" aria-busy="true" aria-label="main.c, carregando">
           <span class="tab-dots" aria-hidden="true">
             <span class="tab-dot tab-dot-blue"></span>
             <span class="tab-dot tab-dot-red"></span>

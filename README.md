@@ -178,14 +178,75 @@ Configurações do backend:
 
 ## Colaboração e publicação
 
-O Firebase fornece autenticação anônima e presença da sala. O conteúdo dos
-arquivos é sincronizado por Yjs/WebRTC, não pelo Firebase, e também é mantido
-localmente em IndexedDB para recuperação no mesmo navegador. A sinalização
-WebRTC usa `VITE_YJS_SIGNALING_URL`, que por padrão aponta para
-`wss://y-webrtc-eu.fly.dev` e `wss://y-webrtc-us.fly.dev`. O endereço antigo
-`wss://signaling.yjs.dev` é migrado automaticamente para esses servidores. Um
-servidor próprio pode ser iniciado com `npm run signaling` em uma hospedagem
-que mantenha WebSockets ativos.
+### Por que a presença aparece, mas o arquivo não abre?
+
+O Firebase cuida da autenticação e da lista de participantes; ele não transmite
+o conteúdo dos arquivos. Os documentos Yjs ficam no navegador e suas mudanças
+são trocadas entre os participantes por WebRTC. O servidor de sinalização
+`y-webrtc` apenas ajuda os navegadores a se encontrarem e negocia a conexão
+WebRTC; ele não armazena nem entrega o código do programa.
+
+Por isso, ver alguém na lista do Firebase não prova que o canal WebRTC foi
+estabelecido. A aba remota fica bloqueada até receber a sincronização Yjs para
+evitar abrir um documento vazio. Falha de DNS, WebSocket bloqueado ou uma rede
+que impeça a conexão WebRTC direta pode deixar a presença funcionando enquanto
+o arquivo não sincroniza.
+
+Para diagnosticar uma publicação, confira no console/rede do navegador a URL
+WebSocket usada pelo app e se ela conecta nos dois dispositivos. A configuração
+`VITE_YJS_SIGNALING_URL` é incorporada ao frontend durante o build: mudar uma
+variável na Vercel exige um novo deploy. Se estiver ausente, o app usa os
+servidores públicos `wss://y-webrtc-eu.fly.dev` e
+`wss://y-webrtc-us.fly.dev`; o endereço antigo
+`wss://signaling.yjs.dev` é migrado para esses endereços.
+
+Para abrir o painel de diagnóstico, acrescente `?debug=1` à URL (ou
+`&debug=1` se ela já tiver parâmetros). Ele mostra os estados do signaling,
+provider, peers WebRTC e awareness, além da sala, do UID anônimo, da quantidade
+de participantes Firebase e dos eventos recentes com horário.
+
+Se a sincronização WebRTC não terminar em 10 segundos enquanto houver outros
+participantes, o app informa **“Sincronizando... a conexão está demorando”** e
+oferece **“Tentar novamente”**. A ação recria o provider da mesma sala; o
+documento Yjs e o arquivo local são preservados. O arquivo próprio permanece
+editável enquanto a conexão é restabelecida.
+
+O provider configura os servidores STUN públicos `stun:stun.l.google.com:19302`
+e `stun:stun1.l.google.com:19302` para ajudar na negociação de conexões diretas.
+STUN não é um relay: algumas redes restritivas ainda podem exigir TURN.
+
+O overlay de loading cobre a interface, mas não condiciona a inicialização do
+Yjs/WebRTC. A colaboração começa independentemente da exibição ou remoção dessa
+tela.
+
+### É obrigatório hospedar outro serviço?
+
+Não necessariamente. Há algumas opções:
+
+1. **Usar os servidores públicos:** não exige configurar outro serviço, desde
+   que eles estejam acessíveis pelos navegadores dos participantes.
+2. **Usar o Render já existente:** é possível hospedar a sinalização no mesmo
+   serviço Node do backend, integrando o protocolo WebSocket ao servidor HTTP
+   existente. Isso requer uma alteração no backend; o comando `npm run
+   signaling` atual inicia um servidor independente. Também é possível criar
+   outro serviço Web no Render a partir deste repositório, sem mudar a API
+   atual.
+3. **Usar outro transporte de documentos:** sincronizar os documentos Yjs pelo
+   Firebase Realtime Database ou outro serviço é uma alternativa, mas exige
+   implementar e validar um provider de sincronização, além de rever regras,
+   permissões, limites e custos. Não é uma configuração que possa ser ativada
+   apenas na Vercel.
+
+Docker é apenas uma forma opcional de empacotar o servidor independente; não é
+obrigatório e não faz o serviço rodar no computador do desenvolvedor. Vercel
+continua podendo hospedar o frontend e as funções de execução. O backend/API no
+Render também pode continuar como está.
+
+Por fim, signaling e transporte WebRTC não garantem que toda rede permita uma
+conexão direta entre navegadores. Redes restritivas podem exigir um servidor
+TURN para retransmitir o tráfego WebRTC, que é uma configuração separada do
+signaling. Primeiro confirme que o WebSocket de signaling conecta; se isso
+ocorrer, mas o WebRTC ainda falhar entre algumas redes, investigue TURN.
 
 O app registra a sala atual pelo UID anônimo do Firebase. Ao abrir o app sem
 código de sala, ele retoma a sala existente desse UID; se a sala anterior
@@ -209,9 +270,9 @@ saiam; o contador então mostra `1/8`. Ao sair, o usuário remove somente a
 própria presença e abre uma sessão solo com documento Yjs e cache IndexedDB
 separados.
 
-Para publicar o app, configure as variáveis `VITE_FIREBASE_*` e
-`VITE_YJS_SIGNALING_URL` no ambiente de build do frontend. Em uma hospedagem
-como Vercel, configure também `JUDGE0_URL`, `JUDGE0_TIMEOUT_MS` e, se
+Para publicar o app, configure as variáveis `VITE_FIREBASE_*` e, se usar um
+servidor próprio, `VITE_YJS_SIGNALING_URL` no ambiente de build do frontend.
+Em uma hospedagem como Vercel, configure também `JUDGE0_URL`, `JUDGE0_TIMEOUT_MS` e, se
 necessário, `JUDGE0_AUTH_TOKEN` como variáveis exclusivas do servidor. A
 função serverless de execução é descoberta a partir de `api/run.ts`.
 

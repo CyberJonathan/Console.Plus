@@ -20,7 +20,7 @@ import { WebrtcProvider } from "y-webrtc";
 const MAX_ROOM_MEMBERS = 8;
 const MEMBER_HEARTBEAT_INTERVAL_MS = 15_000;
 const MEMBER_STALE_AFTER_MS = 120_000;
-const COLLABORATION_SYNC_TIMEOUT_MS = 20_000;
+const REMOTE_SYNC_TIMEOUT_MS = 10_000;
 const editor = document.querySelector<HTMLTextAreaElement>("#codeEditor");
 const usersButton = document.querySelector<HTMLButtonElement>("#usersButton");
 const inviteUsersButton = document.querySelector<HTMLButtonElement>("#inviteUsersButton");
@@ -29,6 +29,9 @@ const toast = document.querySelector<HTMLElement>("#toast");
 const membersPanel = document.querySelector<HTMLElement>("#membersPanel");
 const membersList = document.querySelector<HTMLUListElement>("#membersList");
 const tabs = document.querySelector<HTMLElement>(".tabs");
+const remoteSyncStatus = document.querySelector<HTMLElement>("#remoteSyncStatus");
+const remoteSyncMessage = remoteSyncStatus?.querySelector<HTMLElement>(".remote-sync-message");
+const remoteSyncRetry = remoteSyncStatus?.querySelector<HTMLButtonElement>(".remote-sync-retry");
 const personalFileLoader = document.querySelector<HTMLElement>("#personalFileLoader");
 const personalFileLoaderMessage = personalFileLoader?.querySelector<HTMLElement>(
   ".personal-file-loader-message",
@@ -53,7 +56,8 @@ int main() {
 
 if (
   !editor || !usersButton || !inviteUsersButton || !leaveRoomButton || !toast || !membersPanel || !membersList ||
-  !tabs || !personalFileLoader || !personalFileLoaderMessage || !personalFileLoaderRetry ||
+  !tabs || !remoteSyncStatus || !remoteSyncMessage || !remoteSyncRetry ||
+  !personalFileLoader || !personalFileLoaderMessage || !personalFileLoaderRetry ||
   !roomDialog || !currentRoomCode || !copyRoomCodeButton || !closeRoomDialog ||
   !joinRoomForm || !otherRoomCode
 ) {
@@ -304,6 +308,7 @@ function renderTabs(
         retryPersonalFileLoad();
         return;
       }
+      if (localFile && !collaborationReady) return;
       onSelect(fileKey);
     });
     tabs!.append(tab);
@@ -375,8 +380,12 @@ async function joinRoom(
       return;
     }
     pruneInactiveMembers(nextMembers);
+    const previousMemberCount = Object.keys(roomMembers).length;
     latestMembers = nextMembers;
     roomMembers = latestMembers;
+    if (previousMemberCount !== Object.keys(roomMembers).length) {
+      logDebugEvent(`Presença Firebase: ${Object.keys(roomMembers).length} membro(s)`);
+    }
     updateLeaveRoomButton();
     try {
       localStorage.setItem(`console-room-members:${roomCode}`, JSON.stringify(roomMembers));
@@ -387,6 +396,7 @@ async function joinRoom(
     renderTabs(roomMembers, activeFileKey, selectFile);
     finishCollaborationSetup();
     updateRoomOnlineStatus();
+    scheduleRemoteSyncTimeout();
   });
   let heartbeatTimer: number | undefined;
   try {
@@ -458,6 +468,30 @@ async function joinRoom(
 const roomCode = getRoomCode();
 const soloMode = new URLSearchParams(location.search).get("solo") === "1";
 let roomWasShared = localStorage.getItem(`console-room-shared:${roomCode}`) === "1";
+
+interface CollaborationResources {
+  roomName: string;
+  doc: Y.Doc;
+  persistence: IndexeddbPersistence;
+  provider: WebrtcProvider;
+}
+
+declare global {
+  interface Window {
+    __consolePlusCollaboration?: CollaborationResources;
+  }
+}
+
+const existingResources = window.__consolePlusCollaboration;
+if (existingResources) {
+  existingResources.provider.destroy();
+  void existingResources.persistence.destroy().catch((error: unknown) => {
+    console.error("Não foi possível encerrar a persistência anterior do Yjs:", error);
+  });
+  existingResources.doc.destroy();
+  delete window.__consolePlusCollaboration;
+}
+
 let soloUserId: string | null = null;
 if (soloMode) {
   const soloUserKey = `console-solo-user:${roomCode}`;
@@ -477,9 +511,29 @@ const signalingUrls = !configuredSignalingUrl ||
     configuredSignalingUrl === "wss://signaling.yjs.dev/"
   ? defaultSignalingUrls
   : [configuredSignalingUrl];
-const provider = new WebrtcProvider(`console-room-${roomCode}`, ydoc, {
+const peerOpts = {
+  config: {
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+    ],
+  },
+};
+const providerOptions = {
   signaling: signalingUrls,
-});
+  peerOpts,
+};
+function createProvider(): WebrtcProvider {
+  return new WebrtcProvider(`console-room-${roomCode}`, ydoc, providerOptions);
+}
+
+let provider = createProvider();
+window.__consolePlusCollaboration = {
+  roomName: `console-room-${roomCode}`,
+  doc: ydoc,
+  persistence: localPersistence,
+  provider,
+};
 let activeFileKey = "main.c";
 let activeText: Y.Text | null = null;
 let applyingRemoteChange = false;
@@ -493,6 +547,7 @@ let remoteWebrtcPeerCount = 0;
 const knownWebrtcPeers = new Set<string>();
 let roomOnline = false;
 let syncWaitTimeout: number | undefined;
+let reconnectTimeout: number | undefined;
 let localPersistenceReady = false;
 let localPersistenceFailed = false;
 let localOnlyFallback = false;
@@ -501,6 +556,7 @@ let roomMembers: Record<string, unknown> = getCachedRoomMembers(roomCode);
 let personalFileState: "loading" | "ready" | "error" = "loading";
 let personalFileError = "";
 let lastEditorValue = "";
+let pendingLocalDraft: string | null = null;
 let typingIdleTimeout: number | undefined;
 let localTyping = false;
 const cachedUserId = soloMode ? soloUserId : localStorage.getItem(`console-room-user:${roomCode}`);
@@ -515,6 +571,77 @@ if (cachedUserId) {
 function getOrCreateFile(fileKey: string): Y.Text {
   return ydoc.getText(`console-file-${fileKey}`);
 }
+
+const debugEnabled = new URLSearchParams(location.search).get("debug") === "1";
+const debugEvents: string[] = [];
+const debugPeerIds = new Set<string>();
+const debugSignalStates = new Map<string, boolean>();
+let debugPanel: HTMLElement | null = null;
+let debugState: HTMLElement | null = null;
+let debugLog: HTMLOListElement | null = null;
+
+function logDebugEvent(message: string): void {
+  if (!debugEnabled) return;
+  const timestamp = new Date().toLocaleTimeString();
+  debugEvents.unshift(`${timestamp} ${message}`);
+  debugEvents.length = Math.min(debugEvents.length, 80);
+  renderDebugPanel();
+}
+
+function renderDebugPanel(): void {
+  if (!debugEnabled || !debugState || !debugLog) return;
+  const connections = provider.signalingConns.map((connection) => {
+    const url = String(connection.url);
+    const connected = Boolean(connection.connected);
+    const previousState = debugSignalStates.get(url);
+    if (previousState === undefined && connected) {
+      debugEvents.unshift(`${new Date().toLocaleTimeString()} Signaling conectado: ${url}`);
+      debugEvents.length = Math.min(debugEvents.length, 80);
+    } else if (previousState !== undefined && previousState !== connected) {
+      debugEvents.unshift(
+        `${new Date().toLocaleTimeString()} Signaling ${connected ? "conectado" : "desconectado"}: ${url}`,
+      );
+      debugEvents.length = Math.min(debugEvents.length, 80);
+    }
+    debugSignalStates.set(url, connected);
+    return `${url}: ${connected ? "conectado" : "desconectado"}`;
+  });
+  const uid = soloMode
+    ? soloUserId ?? "solo"
+    : firebaseApp
+      ? getAuth(firebaseApp).currentUser?.uid ?? "aguardando"
+      : "Firebase indisponível";
+  debugState.textContent = [
+    `Sala: ${roomCode} | UID: ${uid} | Membros Firebase: ${Object.keys(roomMembers).length}`,
+    `provider.connected: ${provider.connected} | provider.synced: ${provider.room?.synced ?? false} | peers WebRTC: ${provider.room?.webrtcConns.size ?? 0}`,
+    `Awareness states: ${provider.awareness.getStates().size}`,
+    ...connections.map((connection) => `Signaling: ${connection}`),
+  ].join("\n");
+  debugLog.replaceChildren(...debugEvents.map((entry) => {
+    const item = document.createElement("li");
+    item.textContent = entry;
+    return item;
+  }));
+}
+
+if (debugEnabled) {
+  debugPanel = document.createElement("aside");
+  debugPanel.setAttribute("aria-label", "Diagnóstico da colaboração");
+  debugPanel.style.cssText = "position:fixed;left:8px;bottom:8px;z-index:2000;width:min(520px,calc(100vw - 16px));max-height:45vh;overflow:auto;padding:10px;background:#111e;color:#b9f6ca;border:1px solid #53675b;border-radius:6px;font:11px/1.45 monospace;white-space:pre-wrap;backdrop-filter:blur(8px)";
+  const heading = document.createElement("strong");
+  heading.textContent = "Console.Plus · debug";
+  debugState = document.createElement("pre");
+  debugState.style.cssText = "margin:8px 0;white-space:pre-wrap";
+  debugLog = document.createElement("ol");
+  debugLog.style.cssText = "margin:0;padding-left:22px";
+  debugPanel.append(heading, debugState, debugLog);
+  document.body.append(debugPanel);
+  logDebugEvent(`Provider criado para ${roomCode}`);
+  signalingUrls.forEach((url) => logDebugEvent(`Signaling configurado: ${url}`));
+  window.setInterval(renderDebugPanel, 1000);
+}
+
+bindProviderListeners(provider);
 
 function applyPersonalFileState(tab: HTMLButtonElement): void {
   const isLoading = personalFileState === "loading";
@@ -641,31 +768,34 @@ function updateEditorFromActiveFile(event?: Y.YTextEvent): void {
   }
 
   applyingRemoteChange = true;
-  if (event) {
-    let editorValue = editor!.value;
-    let offset = 0;
-    let canApplyDelta = true;
+  try {
+    if (event) {
+      let editorValue = editor!.value;
+      let offset = 0;
+      let canApplyDelta = true;
 
-    for (const operation of event.delta) {
-      if (typeof operation.retain === "number") {
-        offset += operation.retain;
-      } else if (typeof operation.delete === "number") {
-        editorValue = editorValue.slice(0, offset) + editorValue.slice(offset + operation.delete);
-      } else if (typeof operation.insert === "string") {
-        editorValue = editorValue.slice(0, offset) + operation.insert + editorValue.slice(offset);
-        offset += operation.insert.length;
-      } else {
-        canApplyDelta = false;
-        break;
+      for (const operation of event.delta) {
+        if (typeof operation.retain === "number") {
+          offset += operation.retain;
+        } else if (typeof operation.delete === "number") {
+          editorValue = editorValue.slice(0, offset) + editorValue.slice(offset + operation.delete);
+        } else if (typeof operation.insert === "string") {
+          editorValue = editorValue.slice(0, offset) + operation.insert + editorValue.slice(offset);
+          offset += operation.insert.length;
+        } else {
+          canApplyDelta = false;
+          break;
+        }
       }
-    }
 
-    replaceEditorValue(canApplyDelta && editorValue === nextValue ? editorValue : nextValue);
-  } else {
-    replaceEditorValue(nextValue);
+      replaceEditorValue(canApplyDelta && editorValue === nextValue ? editorValue : nextValue);
+    } else {
+      replaceEditorValue(nextValue);
+    }
+    lastEditorValue = nextValue;
+  } finally {
+    applyingRemoteChange = false;
   }
-  applyingRemoteChange = false;
-  lastEditorValue = nextValue;
 }
 
 function selectFile(fileKey: string): void {
@@ -686,10 +816,11 @@ function finishCollaborationSetup(): void {
 
   const hasOtherRoomMembers = Object.keys(roomMembers).some((memberId) => memberId !== userId);
   const hasCachedPersonalFile = personalFile.length > 0;
-  if (!providerSynced && hasOtherRoomMembers && !hasCachedPersonalFile && !isNewRoomMember) return;
-  if (syncWaitTimeout !== undefined) {
-    window.clearTimeout(syncWaitTimeout);
-    syncWaitTimeout = undefined;
+  if (!providerSynced && hasOtherRoomMembers && !hasCachedPersonalFile && !isNewRoomMember) {
+    personalFileState = "ready";
+    personalFileError = "";
+    renderPersonalFileState();
+    return;
   }
 
   if (personalFile.length === 0) {
@@ -699,8 +830,11 @@ function finishCollaborationSetup(): void {
       );
       return;
     }
-    personalFile.insert(0, isRoomOwner ? editor!.value : starterCode);
+    personalFile.insert(0, pendingLocalDraft ?? (isRoomOwner ? editor!.value : starterCode));
+  } else if (pendingLocalDraft !== null) {
+    updateYTextIncrementally(personalFile, personalFile.toString(), pendingLocalDraft);
   }
+  pendingLocalDraft = null;
 
   activeFileKey = `personal:${userId}`;
   selectFile(activeFileKey);
@@ -736,6 +870,72 @@ function updateRoomOnlineStatus(): void {
   }
 }
 
+function clearRemoteSyncTimeout(): void {
+  if (syncWaitTimeout !== undefined) {
+    window.clearTimeout(syncWaitTimeout);
+    syncWaitTimeout = undefined;
+  }
+  remoteSyncStatus!.hidden = true;
+  remoteSyncMessage!.textContent = "";
+}
+
+function scheduleRemoteSyncTimeout(): void {
+  const userId = getLocalUserId();
+  const hasOtherMembers = Object.keys(roomMembers).some((memberId) => memberId !== userId);
+  if (!roomJoined || !hasOtherMembers || providerSynced) {
+    clearRemoteSyncTimeout();
+    return;
+  }
+  if (syncWaitTimeout !== undefined) return;
+
+  syncWaitTimeout = window.setTimeout(() => {
+    syncWaitTimeout = undefined;
+    if (!roomJoined || providerSynced) return;
+    const stillHasOtherMembers = Object.keys(roomMembers).some(
+      (memberId) => memberId !== getLocalUserId(),
+    );
+    if (!stillHasOtherMembers) return;
+    remoteSyncMessage!.textContent = "Sincronizando... a conexão está demorando.";
+    remoteSyncStatus!.hidden = false;
+    if (!collaborationReady) {
+      personalFileState = "ready";
+      personalFileError = "";
+      renderPersonalFileState();
+    }
+    logDebugEvent("Tempo limite de sincronização atingido");
+    renderTabs(roomMembers, activeFileKey, selectFile);
+  }, REMOTE_SYNC_TIMEOUT_MS);
+}
+
+function retryRemoteSync(): void {
+  if (!navigator.onLine) {
+    showToast("Sem conexão. O código permanece salvo neste navegador.");
+    return;
+  }
+  clearRemoteSyncTimeout();
+  provider.awareness.off("change", updateTypingIndicators);
+  provider.destroy();
+  providerReportedSynced = false;
+  providerSynced = false;
+  remoteWebrtcPeerCount = 0;
+  knownWebrtcPeers.clear();
+  debugPeerIds.clear();
+  debugSignalStates.clear();
+  provider = createProvider();
+  window.__consolePlusCollaboration = {
+    roomName: `console-room-${roomCode}`,
+    doc: ydoc,
+    persistence: localPersistence,
+    provider,
+  };
+  bindProviderListeners(provider);
+  logDebugEvent("Provider destruído e recriado pelo usuário");
+  renderTabs(roomMembers, activeFileKey, selectFile);
+  scheduleRemoteSyncTimeout();
+}
+
+remoteSyncRetry!.addEventListener("click", retryRemoteSync);
+
 function retryPersonalFileLoad(): void {
   if (!navigator.onLine) {
     setPersonalFileError("Sem conexão. Reconecte-se e clique para tentar novamente.");
@@ -746,8 +946,7 @@ function retryPersonalFileLoad(): void {
   personalFileError = "";
   renderPersonalFileState();
   if (roomJoined) {
-    provider.disconnect();
-    provider.connect();
+    retryRemoteSync();
     finishCollaborationSetup();
     return;
   }
@@ -765,6 +964,8 @@ editor!.addEventListener("input", () => {
     if (activeFileKey.startsWith("personal:")) {
       provider.awareness.setLocalStateField("consolePlusTyping", activeFileKey);
     }
+  } else if (roomJoined) {
+    pendingLocalDraft = editor!.value;
   }
   localTyping = true;
   updateTypingIndicators();
@@ -773,44 +974,73 @@ editor!.addEventListener("input", () => {
 });
 editor!.addEventListener("blur", stopLocalTyping);
 
-provider.awareness.on("change", updateTypingIndicators);
-provider.on("peers", ({ webrtcPeers }: { webrtcPeers: string[] }) => {
-  const currentPeers = new Set(webrtcPeers);
-  const hasNewPeer = [...currentPeers].some((peerId) => !knownWebrtcPeers.has(peerId));
-  if (hasNewPeer) {
-    // y-webrtc keeps its room-level synced flag after peers leave; reset it for this new handshake.
-    providerReportedSynced = false;
-    providerSynced = false;
-    if (provider.room) provider.room.synced = false;
-  }
-  knownWebrtcPeers.clear();
-  currentPeers.forEach((peerId) => knownWebrtcPeers.add(peerId));
-  remoteWebrtcPeerCount = webrtcPeers.length;
-  providerSynced = providerReportedSynced && remoteWebrtcPeerCount > 0;
-  renderTabs(roomMembers, activeFileKey, selectFile);
-  if (providerSynced) finishCollaborationSetup();
-  updateRoomOnlineStatus();
-});
-provider.on("status", ({ connected }: { connected: boolean }) => {
-  if (!connected && roomOnline) {
-    roomOnline = false;
-    showToast("Sem conexão com a sala. As alterações ficam salvas neste navegador e serão sincronizadas ao reconectar.");
+function bindProviderListeners(activeProvider: WebrtcProvider): void {
+  activeProvider.awareness.on("change", updateTypingIndicators);
+  activeProvider.on("peers", ({ webrtcPeers }: { webrtcPeers: string[] }) => {
+    if (activeProvider !== provider) return;
+    const currentPeers = new Set(webrtcPeers);
+    for (const peerId of currentPeers) {
+      if (!debugPeerIds.has(peerId)) logDebugEvent(`Peer conectado: ${peerId}`);
+    }
+    for (const peerId of debugPeerIds) {
+      if (!currentPeers.has(peerId)) logDebugEvent(`Peer desconectado: ${peerId}`);
+    }
+    debugPeerIds.clear();
+    currentPeers.forEach((peerId) => debugPeerIds.add(peerId));
+
+    const hasNewPeer = [...currentPeers].some((peerId) => !knownWebrtcPeers.has(peerId));
+    if (hasNewPeer) {
+      providerReportedSynced = false;
+      providerSynced = false;
+      if (activeProvider.room) activeProvider.room.synced = false;
+    }
+    knownWebrtcPeers.clear();
+    currentPeers.forEach((peerId) => knownWebrtcPeers.add(peerId));
+    remoteWebrtcPeerCount = webrtcPeers.length;
+    providerSynced = providerReportedSynced && remoteWebrtcPeerCount > 0;
     renderTabs(roomMembers, activeFileKey, selectFile);
-  }
-});
-provider.on("synced", ({ synced }: { synced: boolean }) => {
-  providerReportedSynced = synced;
+    if (providerSynced) {
+      clearRemoteSyncTimeout();
+      finishCollaborationSetup();
+    } else {
+      scheduleRemoteSyncTimeout();
+    }
+    updateRoomOnlineStatus();
+  });
+  activeProvider.on("status", ({ connected }: { connected: boolean }) => {
+    if (activeProvider !== provider) return;
+    logDebugEvent(`Status do provider: ${connected ? "conectado" : "desconectado"}`);
+    if (!connected) scheduleRemoteSyncTimeout();
+    if (!connected && roomOnline) {
+      roomOnline = false;
+      showToast("Sem conexão com a sala. As alterações ficam salvas neste navegador e serão sincronizadas ao reconectar.");
+      renderTabs(roomMembers, activeFileKey, selectFile);
+    }
+  });
+  activeProvider.on("synced", ({ synced }: { synced: boolean }) => {
+    if (activeProvider !== provider) return;
+    logDebugEvent(`Evento synced: ${synced}`);
+    providerReportedSynced = synced;
+    providerSynced = providerReportedSynced && remoteWebrtcPeerCount > 0;
+    renderTabs(roomMembers, activeFileKey, selectFile);
+    if (providerSynced) {
+      clearRemoteSyncTimeout();
+      finishCollaborationSetup();
+    } else if (!synced && roomJoined && !collaborationReady) {
+      setPersonalFileError(
+        "A sincronização do arquivo pessoal foi interrompida. Clique na aba para tentar novamente.",
+      );
+    } else {
+      scheduleRemoteSyncTimeout();
+    }
+    updateRoomOnlineStatus();
+  });
+
+  providerReportedSynced = activeProvider.room?.synced ?? false;
   providerSynced = providerReportedSynced && remoteWebrtcPeerCount > 0;
-  renderTabs(roomMembers, activeFileKey, selectFile);
-  if (providerSynced) {
-    finishCollaborationSetup();
-  } else if (!synced && roomJoined && !collaborationReady) {
-    setPersonalFileError(
-      "A sincronização do arquivo pessoal foi interrompida. Clique na aba para tentar novamente.",
-    );
-  }
-  updateRoomOnlineStatus();
-});
+  if (providerSynced) finishCollaborationSetup();
+}
+
 void localPersistence.whenSynced.then(() => {
   localPersistenceReady = true;
   renderTabs(roomMembers, activeFileKey, selectFile);
@@ -833,7 +1063,7 @@ window.addEventListener("offline", () => {
   updateRoomOnlineStatus();
   showToast("Você está offline. O código permanece salvo neste navegador.");
   if (!collaborationReady) finishCollaborationSetup();
-  if (!collaborationReady && !soloMode) {
+  if (!collaborationReady && !soloMode && personalFileState !== "ready") {
     setPersonalFileError("Sem conexão. O arquivo pessoal ainda não está disponível.");
   } else if (collaborationReady) {
     renderTabs(roomMembers, activeFileKey, selectFile);
@@ -841,8 +1071,42 @@ window.addEventListener("offline", () => {
 });
 window.addEventListener("online", () => {
   showToast("Conexão restaurada. Sincronizando a sala...");
-  if (personalFileState === "error") retryPersonalFileLoad();
+  if (personalFileState === "error") {
+    retryPersonalFileLoad();
+  } else {
+    reconnectProviderOnResume("rede restaurada");
+  }
 });
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    reconnectProviderOnResume("aba em primeiro plano");
+  }
+});
+
+function reconnectProviderOnResume(reason: string): void {
+  if (!navigator.onLine) return;
+  window.clearTimeout(reconnectTimeout);
+  reconnectTimeout = window.setTimeout(() => {
+    reconnectTimeout = undefined;
+    if (!navigator.onLine) return;
+    const signalingConnections = provider.signalingConns as Array<{ connected: boolean }>;
+    const hasOtherMembers = Object.keys(roomMembers).some(
+      (memberId) => memberId !== getLocalUserId(),
+    );
+    const signalingDisconnected = signalingConnections.some((connection) => !connection.connected);
+    const missingPeers = hasOtherMembers && !providerSynced && remoteWebrtcPeerCount === 0;
+    const reconnecting = Boolean(provider.room) &&
+      (!provider.connected || signalingDisconnected || missingPeers);
+    if (reconnecting) {
+      provider.disconnect();
+      provider.connect();
+    }
+    if (reconnecting) {
+      logDebugEvent(`Reconexão solicitada: ${reason}`);
+      scheduleRemoteSyncTimeout();
+    }
+  }, 500);
+}
 
 function openRoomDialog(): void {
   currentRoomCode!.value = roomCode;
@@ -979,6 +1243,7 @@ async function authenticateAndJoin(): Promise<void> {
   const auth = getAuth(firebaseApp);
   try {
     const { user } = await signInAnonymously(auth);
+    logDebugEvent(`Autenticação anônima pronta: ${user.uid}`);
     if (await prepareGeneratedRoom(user.uid)) return;
     usersButton!.textContent = `Usuários (1/${MAX_ROOM_MEMBERS})`;
     const joinedRoom = await joinRoom(roomCode, user.uid);
@@ -988,21 +1253,11 @@ async function authenticateAndJoin(): Promise<void> {
     roomOwnerId = ownerId;
     roomMembers = members;
     roomJoined = true;
+    logDebugEvent(`Entrada na sala confirmada: ${roomCode}`);
     isNewRoomMember = joinedAsNewMember;
     localOnlyFallback = false;
     updateLeaveRoomButton();
-    if (
-      Object.keys(roomMembers).some((memberId) => memberId !== user.uid) &&
-      !providerSynced
-    ) {
-      syncWaitTimeout = window.setTimeout(() => {
-        if (!collaborationReady && roomJoined) {
-          setPersonalFileError(
-            "A sala ainda mostra participantes sem sincronização. Verifique a conexão; presenças inativas serão removidas automaticamente.",
-          );
-        }
-      }, COLLABORATION_SYNC_TIMEOUT_MS);
-    }
+    scheduleRemoteSyncTimeout();
     cacheRoomState(roomCode, roomMembers, user.uid, ownerId);
     if (isOwner && database) {
       try {

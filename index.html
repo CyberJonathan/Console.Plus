@@ -637,6 +637,34 @@
         font: 12px var(--mono);
       }
 
+      .remote-sync-status {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 8px 12px;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        color: var(--text-dim);
+        font: 11px/1.5 var(--mono);
+      }
+
+      .remote-sync-status[hidden] {
+        display: none;
+      }
+
+      .remote-sync-retry {
+        flex: 0 0 auto;
+        padding: 5px 9px;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        background: var(--panel-2);
+        color: var(--text);
+        cursor: pointer;
+        font: inherit;
+      }
+
       .tab.load-error {
         cursor: pointer;
       }
@@ -1314,6 +1342,10 @@
           </span>
         </button>
       </nav>
+      <div id="remoteSyncStatus" class="remote-sync-status" role="status" aria-live="polite" hidden>
+        <span class="remote-sync-message"></span>
+        <button class="remote-sync-retry" type="button">Tentar novamente</button>
+      </div>
 
       <section class="workspace">
         <!-- Console -->

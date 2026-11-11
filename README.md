@@ -200,10 +200,14 @@ removê-las manualmente no Firebase.
 
 Ao abrir uma sala sem outros participantes, o editor funciona como uma sessão
 solo: o arquivo fica salvo localmente e a sala aguarda alguém entrar pelo
-código. Só quando outro participante entra e a conexão WebRTC sincroniza o app
-mostra o estado de sala online. O botão de saída aparece quando há outro
-participante; ao usá-lo, o usuário sai da presença e abre uma sessão solo com
-documento Yjs e cache IndexedDB separados.
+código. Um novo participante pode editar seu próprio arquivo local enquanto
+aguarda a sincronização; arquivos dos demais ficam indisponíveis até o WebRTC
+sincronizar. Quando outro participante entra, o app mostra o estado de sala
+online após a sincronização. A lista e o botão de saída permanecem visíveis
+depois que a sala já foi compartilhada, mesmo que os outros participantes
+saiam; o contador então mostra `1/8`. Ao sair, o usuário remove somente a
+própria presença e abre uma sessão solo com documento Yjs e cache IndexedDB
+separados.
 
 Para publicar o app, configure as variáveis `VITE_FIREBASE_*` e
 `VITE_YJS_SIGNALING_URL` no ambiente de build do frontend. Em uma hospedagem

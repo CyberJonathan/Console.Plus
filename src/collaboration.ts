@@ -169,8 +169,16 @@ function updateYTextIncrementally(text: Y.Text, previousValue: string, nextValue
 function renderMembers(value: unknown): void {
   const members = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const entries = Object.entries(members);
+  if (entries.length > 1) {
+    roomWasShared = true;
+    try {
+      localStorage.setItem(`console-room-shared:${roomCode}`, "1");
+    } catch (error) {
+      console.error("Não foi possível salvar o estado compartilhado da sala:", error);
+    }
+  }
   usersButton!.textContent = `Usuários (${entries.length}/${MAX_ROOM_MEMBERS})`;
-  usersButton!.hidden = entries.length <= 1;
+  usersButton!.hidden = entries.length <= 1 && !roomWasShared;
   membersList!.replaceChildren();
 
   if (entries.length === 0) {
@@ -223,7 +231,7 @@ function cacheRoomState(roomCode: string, members: Record<string, unknown>, user
 function updateLeaveRoomButton(): void {
   const userId = getLocalUserId();
   const hasOtherMembers = Object.keys(roomMembers).some((memberId) => memberId !== userId);
-  leaveRoomButton!.hidden = soloMode || !roomJoined || !hasOtherMembers;
+  leaveRoomButton!.hidden = soloMode || !roomJoined || (!hasOtherMembers && !roomWasShared);
 }
 
 function getLocalUserId(): string | null {
@@ -306,12 +314,20 @@ function renderTabs(
 async function joinRoom(
   roomCode: string,
   userId: string,
-): Promise<{ cleanup: () => Promise<void>; isOwner: boolean; ownerId: string; members: Record<string, unknown> }> {
+): Promise<{
+  cleanup: () => Promise<void>;
+  isNewMember: boolean;
+  isOwner: boolean;
+  ownerId: string;
+  members: Record<string, unknown>;
+}> {
   if (!database) throw new Error("Firebase ainda não foi configurado.");
   const activeDatabase: Database = database;
   const roomRef = ref(activeDatabase, `rooms/${roomCode}`);
   const membersRef = ref(activeDatabase, `rooms/${roomCode}/members`);
   const memberRef = ref(activeDatabase, `rooms/${roomCode}/members/${userId}`);
+  const existingMemberSnapshot = await get(memberRef);
+  const isNewMember = !existingMemberSnapshot.exists();
   const connectedRef = ref(activeDatabase, ".info/connected");
   let databaseConnected = navigator.onLine;
   const connectedListener = onValue(connectedRef, (snapshot) => {
@@ -422,6 +438,7 @@ async function joinRoom(
 
     return {
       isOwner: ownerId === userId,
+      isNewMember,
       ownerId,
       members: latestMembers,
       cleanup: async () => {
@@ -440,6 +457,7 @@ async function joinRoom(
 
 const roomCode = getRoomCode();
 const soloMode = new URLSearchParams(location.search).get("solo") === "1";
+let roomWasShared = localStorage.getItem(`console-room-shared:${roomCode}`) === "1";
 let soloUserId: string | null = null;
 if (soloMode) {
   const soloUserKey = `console-solo-user:${roomCode}`;
@@ -468,6 +486,7 @@ let applyingRemoteChange = false;
 let collaborationReady = false;
 let roomJoined = false;
 let roomCleanup: (() => Promise<void>) | undefined;
+let isNewRoomMember = false;
 let providerSynced = false;
 let providerReportedSynced = false;
 let remoteWebrtcPeerCount = 0;
@@ -666,16 +685,15 @@ function finishCollaborationSetup(): void {
   const personalFile = getOrCreateFile(`personal:${userId}`);
 
   const hasOtherRoomMembers = Object.keys(roomMembers).some((memberId) => memberId !== userId);
-  const hasUsableOfflineCopy = personalFile.length > 0 &&
-    (localOnlyFallback || !navigator.onLine) && localPersistenceReady;
-  if (!providerSynced && hasOtherRoomMembers && !hasUsableOfflineCopy) return;
+  const hasCachedPersonalFile = personalFile.length > 0;
+  if (!providerSynced && hasOtherRoomMembers && !hasCachedPersonalFile && !isNewRoomMember) return;
   if (syncWaitTimeout !== undefined) {
     window.clearTimeout(syncWaitTimeout);
     syncWaitTimeout = undefined;
   }
 
   if (personalFile.length === 0) {
-    if (!providerSynced && (!navigator.onLine || hasOtherRoomMembers)) {
+    if (!providerSynced && (!navigator.onLine || hasOtherRoomMembers) && !isNewRoomMember) {
       setPersonalFileError(
         "Não foi possível sincronizar o arquivo pessoal. Verifique a conexão e clique para tentar novamente.",
       );
@@ -692,9 +710,12 @@ function finishCollaborationSetup(): void {
   renderPersonalFileState();
   updateRoomOnlineStatus();
   if (!roomOnline) {
-    showToast(localOnlyFallback || !navigator.onLine
-      ? "Sessão solo disponível offline."
-      : "Sessão solo pronta. Compartilhe o código para colaborar.");
+    const readyMessage = hasOtherRoomMembers
+      ? "Seu arquivo está pronto; aguardando sincronização com a sala."
+      : localOnlyFallback || !navigator.onLine
+        ? "Sessão solo disponível offline."
+        : "Sessão solo pronta. Compartilhe o código para colaborar.";
+    showToast(readyMessage);
   }
 }
 
@@ -962,11 +983,12 @@ async function authenticateAndJoin(): Promise<void> {
     usersButton!.textContent = `Usuários (1/${MAX_ROOM_MEMBERS})`;
     const joinedRoom = await joinRoom(roomCode, user.uid);
     roomCleanup = joinedRoom.cleanup;
-    const { isOwner, ownerId, members } = joinedRoom;
+    const { isNewMember: joinedAsNewMember, isOwner, ownerId, members } = joinedRoom;
     isRoomOwner = isOwner;
     roomOwnerId = ownerId;
     roomMembers = members;
     roomJoined = true;
+    isNewRoomMember = joinedAsNewMember;
     localOnlyFallback = false;
     updateLeaveRoomButton();
     if (

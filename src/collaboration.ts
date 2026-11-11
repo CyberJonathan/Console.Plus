@@ -254,6 +254,20 @@ function fileLabel(fileKey: string, members: Record<string, unknown>): string {
   return `${name.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-|-$/g, "") || "Usuario"}.c`;
 }
 
+function getProviderConnectionHealth(activeProvider: WebrtcProvider): boolean {
+  const signalingConnections = Array.isArray((activeProvider as WebrtcProvider & {
+    signalingConns?: Array<{ connected?: boolean }>;
+  }).signalingConns)
+    ? (activeProvider as WebrtcProvider & { signalingConns?: Array<{ connected?: boolean }> }).signalingConns!
+    : [];
+  return Boolean(
+    activeProvider.connected ||
+      activeProvider.room?.synced ||
+      remoteWebrtcPeerCount > 0 ||
+      signalingConnections.some((connection) => connection?.connected === true),
+  );
+}
+
 function renderTabs(
   members: Record<string, unknown>,
   activeFileKey: string,
@@ -262,9 +276,14 @@ function renderTabs(
   const fileKeys = Object.keys(members)
     .map((userId) => `personal:${userId}`)
     .sort((first, second) => {
-      const firstIsOwner = first.replace("personal:", "") === roomOwnerId;
-      const secondIsOwner = second.replace("personal:", "") === roomOwnerId;
-      return Number(secondIsOwner) - Number(firstIsOwner);
+      const firstId = first.replace("personal:", "");
+      const secondId = second.replace("personal:", "");
+      const firstIsOwner = firstId === roomOwnerId;
+      const secondIsOwner = secondId === roomOwnerId;
+      if (firstIsOwner !== secondIsOwner) {
+        return Number(secondIsOwner) - Number(firstIsOwner);
+      }
+      return firstId.localeCompare(secondId);
     });
   if (fileKeys.length === 0) {
     const initialTab = tabs!.querySelector<HTMLButtonElement>(".tab");
@@ -884,8 +903,9 @@ function finishCollaborationSetup(): void {
 function updateRoomOnlineStatus(): void {
   const userId = getLocalUserId();
   const hasOtherRoomMembers = Object.keys(roomMembers).some((memberId) => memberId !== userId);
-  if (!hasOtherRoomMembers || !providerSynced || !navigator.onLine || localOnlyFallback) {
-    if (roomOnline && (!hasOtherRoomMembers || !providerSynced || !navigator.onLine)) {
+  const collaborationHealthy = getProviderConnectionHealth(provider);
+  if (!hasOtherRoomMembers || !collaborationHealthy || !navigator.onLine || localOnlyFallback) {
+    if (roomOnline && (!hasOtherRoomMembers || !collaborationHealthy || !navigator.onLine)) {
       roomOnline = false;
       showToast("A sala ficou offline. As alterações serão sincronizadas ao reconectar.");
     }
@@ -910,7 +930,8 @@ function clearRemoteSyncTimeout(): void {
 function scheduleRemoteSyncTimeout(): void {
   const userId = getLocalUserId();
   const hasOtherMembers = Object.keys(roomMembers).some((memberId) => memberId !== userId);
-  if (!roomJoined || !hasOtherMembers || providerSynced) {
+  const providerConnected = getProviderConnectionHealth(provider);
+  if (!roomJoined || !hasOtherMembers || providerConnected) {
     clearRemoteSyncTimeout();
     return;
   }
@@ -918,7 +939,7 @@ function scheduleRemoteSyncTimeout(): void {
 
   syncWaitTimeout = window.setTimeout(() => {
     syncWaitTimeout = undefined;
-    if (!roomJoined || providerSynced) return;
+    if (!roomJoined || getProviderConnectionHealth(provider)) return;
     const stillHasOtherMembers = Object.keys(roomMembers).some(
       (memberId) => memberId !== getLocalUserId(),
     );
@@ -1025,7 +1046,7 @@ function bindProviderListeners(activeProvider: WebrtcProvider): void {
     knownWebrtcPeers.clear();
     currentPeers.forEach((peerId) => knownWebrtcPeers.add(peerId));
     remoteWebrtcPeerCount = webrtcPeers.length;
-    providerSynced = providerReportedSynced && remoteWebrtcPeerCount > 0;
+    providerSynced = getProviderConnectionHealth(activeProvider);
     renderTabs(roomMembers, activeFileKey, selectFile);
     if (providerSynced) {
       clearRemoteSyncTimeout();
@@ -1038,6 +1059,7 @@ function bindProviderListeners(activeProvider: WebrtcProvider): void {
   activeProvider.on("status", ({ connected }: { connected: boolean }) => {
     if (activeProvider !== provider) return;
     logDebugEvent(`Status do provider: ${connected ? "conectado" : "desconectado"}`);
+    providerSynced = getProviderConnectionHealth(activeProvider);
     if (!connected) scheduleRemoteSyncTimeout();
     if (!connected && roomOnline) {
       roomOnline = false;
@@ -1049,7 +1071,7 @@ function bindProviderListeners(activeProvider: WebrtcProvider): void {
     if (activeProvider !== provider) return;
     logDebugEvent(`Evento synced: ${synced}`);
     providerReportedSynced = synced;
-    providerSynced = providerReportedSynced && remoteWebrtcPeerCount > 0;
+    providerSynced = getProviderConnectionHealth(activeProvider);
     renderTabs(roomMembers, activeFileKey, selectFile);
     if (providerSynced) {
       clearRemoteSyncTimeout();
@@ -1065,7 +1087,7 @@ function bindProviderListeners(activeProvider: WebrtcProvider): void {
   });
 
   providerReportedSynced = activeProvider.room?.synced ?? false;
-  providerSynced = providerReportedSynced && remoteWebrtcPeerCount > 0;
+  providerSynced = getProviderConnectionHealth(activeProvider);
   if (providerSynced) finishCollaborationSetup();
 }
 

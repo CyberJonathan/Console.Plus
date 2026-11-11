@@ -38,11 +38,12 @@ const personalFileLoaderRetry = personalFileLoader?.querySelector<HTMLButtonElem
 );
 const roomDialog = document.querySelector<HTMLDialogElement>("#roomDialog");
 const currentRoomCode = document.querySelector<HTMLInputElement>("#currentRoomCode");
+const toastParent = toast?.parentElement;
+const toastNextSibling = toast?.nextSibling;
 const copyRoomCodeButton = document.querySelector<HTMLButtonElement>("#copyRoomCodeButton");
 const closeRoomDialog = document.querySelector<HTMLButtonElement>("#closeRoomDialog");
 const joinRoomForm = document.querySelector<HTMLFormElement>("#joinRoomForm");
 const otherRoomCode = document.querySelector<HTMLInputElement>("#otherRoomCode");
-const roomDialogFeedback = document.querySelector<HTMLElement>("#roomDialogFeedback");
 const starterCode = `#include <stdio.h>
 
 int main() {
@@ -54,7 +55,7 @@ if (
   !editor || !usersButton || !inviteUsersButton || !leaveRoomButton || !toast || !membersPanel || !membersList ||
   !tabs || !personalFileLoader || !personalFileLoaderMessage || !personalFileLoaderRetry ||
   !roomDialog || !currentRoomCode || !copyRoomCodeButton || !closeRoomDialog ||
-  !joinRoomForm || !otherRoomCode || !roomDialogFeedback
+  !joinRoomForm || !otherRoomCode
 ) {
   throw new Error("Elementos necessários para colaboração não foram encontrados.");
 }
@@ -79,10 +80,24 @@ const requiredConfig = [
 const firebaseApp = requiredConfig.some((value) => !value) ? null : initializeApp(firebaseConfig);
 const database = firebaseApp ? getDatabase(firebaseApp) : null;
 
+let toastTimeout: number | undefined;
+
 function showToast(message: string): void {
+  if (roomDialog?.open) {
+    roomDialog.append(toast!);
+  } else if (toastParent && toast!.parentElement !== toastParent) {
+    toastParent.insertBefore(
+      toast!,
+      toastNextSibling?.parentNode === toastParent ? toastNextSibling : null,
+    );
+  }
   toast!.textContent = message;
   toast!.classList.add("visible");
-  window.setTimeout(() => toast!.classList.remove("visible"), 3000);
+  window.clearTimeout(toastTimeout);
+  toastTimeout = window.setTimeout(() => {
+    toast!.classList.remove("visible");
+    toastTimeout = undefined;
+  }, 3000);
 }
 
 function createRoomCode(): string {
@@ -208,13 +223,7 @@ function cacheRoomState(roomCode: string, members: Record<string, unknown>, user
 function updateLeaveRoomButton(): void {
   const userId = getLocalUserId();
   const hasOtherMembers = Object.keys(roomMembers).some((memberId) => memberId !== userId);
-  let wasShared = false;
-  try {
-    wasShared = localStorage.getItem(`console-room-shared:${roomCode}`) === "1";
-  } catch (error) {
-    console.error("Não foi possível verificar se a sala já foi compartilhada:", error);
-  }
-  leaveRoomButton!.hidden = soloMode || !roomJoined || (!hasOtherMembers && !wasShared);
+  leaveRoomButton!.hidden = soloMode || !roomJoined || !hasOtherMembers;
 }
 
 function getLocalUserId(): string | null {
@@ -361,6 +370,7 @@ async function joinRoom(
     renderMembers(latestMembers);
     renderTabs(roomMembers, activeFileKey, selectFile);
     finishCollaborationSetup();
+    updateRoomOnlineStatus();
   });
   let heartbeatTimer: number | undefined;
   try {
@@ -462,6 +472,7 @@ let providerSynced = false;
 let providerReportedSynced = false;
 let remoteWebrtcPeerCount = 0;
 const knownWebrtcPeers = new Set<string>();
+let roomOnline = false;
 let syncWaitTimeout: number | undefined;
 let localPersistenceReady = false;
 let localPersistenceFailed = false;
@@ -679,9 +690,29 @@ function finishCollaborationSetup(): void {
   personalFileState = "ready";
   personalFileError = "";
   renderPersonalFileState();
-  showToast(localOnlyFallback || !navigator.onLine
-    ? "Arquivo pessoal aberto em modo offline."
-    : `Sala ${roomCode} sincronizada.`);
+  updateRoomOnlineStatus();
+  if (!roomOnline) {
+    showToast(localOnlyFallback || !navigator.onLine
+      ? "Sessão solo disponível offline."
+      : "Sessão solo pronta. Compartilhe o código para colaborar.");
+  }
+}
+
+function updateRoomOnlineStatus(): void {
+  const userId = getLocalUserId();
+  const hasOtherRoomMembers = Object.keys(roomMembers).some((memberId) => memberId !== userId);
+  if (!hasOtherRoomMembers || !providerSynced || !navigator.onLine || localOnlyFallback) {
+    if (roomOnline && (!hasOtherRoomMembers || !providerSynced || !navigator.onLine)) {
+      roomOnline = false;
+      showToast("A sala ficou offline. As alterações serão sincronizadas ao reconectar.");
+    }
+    return;
+  }
+
+  if (!roomOnline) {
+    roomOnline = true;
+    showToast(`Sala ${roomCode} sincronizada.`);
+  }
 }
 
 function retryPersonalFileLoad(): void {
@@ -737,9 +768,11 @@ provider.on("peers", ({ webrtcPeers }: { webrtcPeers: string[] }) => {
   providerSynced = providerReportedSynced && remoteWebrtcPeerCount > 0;
   renderTabs(roomMembers, activeFileKey, selectFile);
   if (providerSynced) finishCollaborationSetup();
+  updateRoomOnlineStatus();
 });
 provider.on("status", ({ connected }: { connected: boolean }) => {
-  if (!connected) {
+  if (!connected && roomOnline) {
+    roomOnline = false;
     showToast("Sem conexão com a sala. As alterações ficam salvas neste navegador e serão sincronizadas ao reconectar.");
     renderTabs(roomMembers, activeFileKey, selectFile);
   }
@@ -755,6 +788,7 @@ provider.on("synced", ({ synced }: { synced: boolean }) => {
       "A sincronização do arquivo pessoal foi interrompida. Clique na aba para tentar novamente.",
     );
   }
+  updateRoomOnlineStatus();
 });
 void localPersistence.whenSynced.then(() => {
   localPersistenceReady = true;
@@ -775,6 +809,7 @@ void localPersistence.whenSynced.then(() => {
 window.addEventListener("offline", () => {
   providerSynced = false;
   providerReportedSynced = false;
+  updateRoomOnlineStatus();
   showToast("Você está offline. O código permanece salvo neste navegador.");
   if (!collaborationReady) finishCollaborationSetup();
   if (!collaborationReady && !soloMode) {
@@ -791,44 +826,16 @@ window.addEventListener("online", () => {
 function openRoomDialog(): void {
   currentRoomCode!.value = roomCode;
   otherRoomCode!.value = "";
-  clearTimeout(roomDialogFeedbackTimer);
-  roomDialogFeedback!.textContent = "";
-  roomDialogFeedback!.classList.remove("success");
-  roomDialogFeedback!.classList.remove("visible");
-  roomDialogFeedback!.hidden = true;
   roomDialog!.showModal();
-}
-
-let roomDialogFeedbackTimer: number | undefined;
-
-function showRoomDialogFeedback(message: string, success = false): void {
-  clearTimeout(roomDialogFeedbackTimer);
-  roomDialogFeedback!.textContent = message;
-  roomDialogFeedback!.classList.toggle("success", success);
-  roomDialogFeedback!.hidden = false;
-  roomDialogFeedback!.classList.add("visible");
-  roomDialogFeedbackTimer = window.setTimeout(() => {
-    roomDialogFeedback!.classList.remove("visible");
-    roomDialogFeedback!.classList.remove("success");
-    roomDialogFeedback!.hidden = true;
-    roomDialogFeedbackTimer = undefined;
-  }, 3000);
 }
 
 async function copyRoomCode(): Promise<void> {
   try {
     await navigator.clipboard.writeText(roomCode);
-    try {
-      localStorage.setItem(`console-room-shared:${roomCode}`, "1");
-    } catch (error) {
-      console.error("Não foi possível registrar que a sala foi compartilhada:", error);
-      showToast("O código foi copiado, mas o estado de compartilhamento não será lembrado.");
-    }
-    updateLeaveRoomButton();
-    showRoomDialogFeedback(`Código ${roomCode} copiado.`, true);
+    showToast(`Código ${roomCode} copiado.`);
   } catch (error) {
     console.error("Não foi possível copiar o código da sala:", error);
-    showRoomDialogFeedback("Não foi possível copiar automaticamente. Selecione e copie o código.");
+    showToast("Não foi possível copiar automaticamente. Selecione o código para copiá-lo.");
     currentRoomCode!.select();
   }
 }
@@ -855,7 +862,7 @@ joinRoomForm!.addEventListener("submit", (event) => {
   event.preventDefault();
   const requestedRoom = otherRoomCode!.value.trim().toUpperCase();
   if (!/^[A-Z0-9]{4,12}$/.test(requestedRoom)) {
-    showRoomDialogFeedback("Digite um código de sala válido (4 a 12 letras ou números).");
+    showToast("Digite um código de sala válido (4 a 12 letras ou números).");
     return;
   }
   location.assign(`${location.pathname}?room=${requestedRoom}`);

@@ -71,7 +71,7 @@ VITE_FIREBASE_PROJECT_ID=
 VITE_FIREBASE_STORAGE_BUCKET=
 VITE_FIREBASE_MESSAGING_SENDER_ID=
 VITE_FIREBASE_APP_ID=
-VITE_YJS_SIGNALING_URL=wss://signaling.yjs.dev
+VITE_YJS_SIGNALING_URL=wss://y-webrtc-eu.fly.dev
 ```
 
 No Firebase:
@@ -198,11 +198,12 @@ dispositivos. Salas antigas sem registro de sala atual não podem ser localizada
 automaticamente; o dono precisa reabri-las uma vez para registrar a sala, ou
 removê-las manualmente no Firebase.
 
-O botão de saída só aparece depois que o código da sala é copiado para
-compartilhamento ou quando outro participante entra. Ele remove o participante
-da presença da sala e abre uma sessão solo com um documento Yjs e cache
-IndexedDB separados. Essa sessão não entra no Firebase nem exibe ações de
-compartilhamento.
+Ao abrir uma sala sem outros participantes, o editor funciona como uma sessão
+solo: o arquivo fica salvo localmente e a sala aguarda alguém entrar pelo
+código. Só quando outro participante entra e a conexão WebRTC sincroniza o app
+mostra o estado de sala online. O botão de saída aparece quando há outro
+participante; ao usá-lo, o usuário sai da presença e abre uma sessão solo com
+documento Yjs e cache IndexedDB separados.
 
 Para publicar o app, configure as variáveis `VITE_FIREBASE_*` e
 `VITE_YJS_SIGNALING_URL` no ambiente de build do frontend. Em uma hospedagem

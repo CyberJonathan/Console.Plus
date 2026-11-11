@@ -376,45 +376,6 @@
         background: #04df0f;
       }
 
-      .room-dialog-feedback {
-        position: absolute;
-        z-index: 2;
-        top: 50%;
-        left: 50%;
-        width: max-content;
-        max-width: calc(100% - 12px);
-        margin: 0;
-        padding: 9px 14px;
-        transform: translate(-50%, -50%) scale(0.96);
-        border: 1px solid var(--border);
-        border-radius: 999px;
-        background: var(--panel-2);
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
-        color: var(--err);
-        font-size: 12px;
-        font-weight: 600;
-        line-height: 1.35;
-        text-align: center;
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 120ms ease, transform 120ms ease;
-      }
-
-      .room-dialog-feedback[hidden] {
-        display: none;
-      }
-
-      .room-dialog-feedback.visible {
-        transform: translate(-50%, -50%) scale(1);
-        opacity: 1;
-      }
-
-      .room-dialog-feedback.success {
-        border-color: var(--ok);
-        background: var(--panel);
-        color: var(--ok);
-      }
-
       .members-panel {
         position: fixed;
         z-index: 10;
@@ -1117,6 +1078,10 @@
         transform: translateY(0);
       }
 
+      .room-dialog > .toast {
+        z-index: 1;
+      }
+
       .name-modal {
         position: fixed;
         inset: 0;
@@ -1420,7 +1385,6 @@ int main() {
       <label for="currentRoomCode">Código da sua sala</label>
       <div class="room-code-row">
         <input id="currentRoomCode" type="text" readonly />
-        <p id="roomDialogFeedback" class="room-dialog-feedback" role="status" aria-live="polite" hidden></p>
         <button id="copyRoomCodeButton" class="room-code-copy" type="button" aria-label="Copiar código da sala" title="Copiar código da sala">
           <svg class="copy-icon" viewBox="0 0 24 24" aria-hidden="true">
             <rect x="8" y="8" width="11" height="11" rx="1"></rect>

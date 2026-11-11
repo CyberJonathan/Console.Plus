@@ -543,20 +543,65 @@
         opacity: 1;
       }
 
-      .tab.loading .tab-dot {
+      .personal-file-loader {
+        position: fixed;
+        z-index: 1000;
+        inset: 0;
+        display: grid;
+        align-content: center;
+        justify-items: center;
+        gap: 24px;
+        background: #000;
+        color: #fff;
+      }
+
+      .personal-file-loader[hidden] {
+        display: none;
+      }
+
+      .personal-file-loader.load-error .tab-dots {
+        display: none;
+      }
+
+      .personal-file-loader .tab-dots {
+        gap: 12px;
+        opacity: 1;
+      }
+
+      .personal-file-loader .tab-dot {
+        width: 14px;
+        height: 14px;
         animation: dotBounce 1.2s ease-in-out infinite;
       }
 
-      .tab.loading .tab-dot-blue {
+      .personal-file-loader .tab-dot-blue {
         animation-delay: 0ms;
       }
 
-      .tab.loading .tab-dot-red {
+      .personal-file-loader .tab-dot-red {
         animation-delay: 150ms;
       }
 
-      .tab.loading .tab-dot-yellow {
+      .personal-file-loader .tab-dot-yellow {
         animation-delay: 300ms;
+      }
+
+      .personal-file-loader-message {
+        max-width: min(360px, calc(100vw - 40px));
+        margin: 0;
+        color: #d7dbe0;
+        font: 13px/1.5 var(--mono);
+        text-align: center;
+      }
+
+      .personal-file-loader-retry {
+        padding: 8px 14px;
+        border: 1px solid #555b64;
+        border-radius: 4px;
+        background: #17191c;
+        color: #fff;
+        cursor: pointer;
+        font: 12px var(--mono);
       }
 
       .tab.load-error {
@@ -583,7 +628,7 @@
         }
 
         30% {
-          transform: translateY(-4px);
+          transform: translateY(-10px);
           opacity: 1;
         }
       }
@@ -1191,6 +1236,15 @@
     </style>
   </head>
   <body>
+    <div id="personalFileLoader" class="personal-file-loader" role="status" aria-live="polite">
+      <span class="tab-dots" aria-hidden="true">
+        <span class="tab-dot tab-dot-blue"></span>
+        <span class="tab-dot tab-dot-red"></span>
+        <span class="tab-dot tab-dot-yellow"></span>
+      </span>
+      <p class="personal-file-loader-message" hidden></p>
+      <button class="personal-file-loader-retry" type="button" hidden>Tentar novamente</button>
+    </div>
     <main class="app">
       <!-- Barra superior -->
       <header class="topbar">

@@ -22,6 +22,13 @@ const toast = document.querySelector<HTMLElement>("#toast");
 const membersPanel = document.querySelector<HTMLElement>("#membersPanel");
 const membersList = document.querySelector<HTMLUListElement>("#membersList");
 const tabs = document.querySelector<HTMLElement>(".tabs");
+const personalFileLoader = document.querySelector<HTMLElement>("#personalFileLoader");
+const personalFileLoaderMessage = personalFileLoader?.querySelector<HTMLElement>(
+  ".personal-file-loader-message",
+);
+const personalFileLoaderRetry = personalFileLoader?.querySelector<HTMLButtonElement>(
+  ".personal-file-loader-retry",
+);
 const roomDialog = document.querySelector<HTMLDialogElement>("#roomDialog");
 const currentRoomCode = document.querySelector<HTMLInputElement>("#currentRoomCode");
 const copyRoomCodeButton = document.querySelector<HTMLButtonElement>("#copyRoomCodeButton");
@@ -38,7 +45,8 @@ int main() {
 
 if (
   !editor || !usersButton || !inviteUsersButton || !toast || !membersPanel || !membersList ||
-  !tabs || !roomDialog || !currentRoomCode || !copyRoomCodeButton || !closeRoomDialog ||
+  !tabs || !personalFileLoader || !personalFileLoaderMessage || !personalFileLoaderRetry ||
+  !roomDialog || !currentRoomCode || !copyRoomCodeButton || !closeRoomDialog ||
   !joinRoomForm || !otherRoomCode || !roomDialogFeedback
 ) {
   throw new Error("Elementos necessários para colaboração não foram encontrados.");
@@ -391,6 +399,18 @@ function applyPersonalFileState(tab: HTMLButtonElement): void {
 }
 
 function renderPersonalFileState(): void {
+  const isLoading = personalFileState === "loading";
+  const hasError = personalFileState === "error";
+  personalFileLoader!.hidden = personalFileState === "ready";
+  personalFileLoader!.classList.toggle("load-error", hasError);
+  personalFileLoaderMessage!.hidden = !hasError;
+  personalFileLoaderMessage!.textContent = hasError ? personalFileError : "";
+  personalFileLoaderRetry!.hidden = !hasError;
+  personalFileLoader!.setAttribute("aria-label", isLoading
+    ? "Carregando seu arquivo pessoal"
+    : hasError
+      ? `Erro ao carregar seu arquivo pessoal: ${personalFileError}`
+      : "");
   renderTabs(roomMembers, activeFileKey, selectFile);
   const uid = getLocalUserId();
   const personalTab = uid
@@ -570,6 +590,8 @@ function retryPersonalFileLoad(): void {
   }
   void authenticateAndJoin();
 }
+
+personalFileLoaderRetry!.addEventListener("click", retryPersonalFileLoad);
 
 editor!.addEventListener("input", () => {
   if (applyingRemoteChange) return;

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Console online minimalista para editar código." />
     <title>Console.Plus()</title>
+    <link rel="icon" type="image/png" href="/assets/favicon-removebg-preview-CbuMlR2u.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -149,6 +150,8 @@
         border: 0;
         background: transparent;
         text-align: left;
+        margin-left: 0;
+        transform: translateX(-15px);
       }
 
       .user-identity:hover {
@@ -183,7 +186,7 @@
         text-transform: uppercase;
       }
 
-      #addFileButton {
+      #inviteUsersButton {
         width: 28px;
         padding: 0;
         border-color: var(--emerald);
@@ -193,9 +196,205 @@
         line-height: 1;
       }
 
-      #addFileButton:hover {
+      #inviteUsersButton:hover {
         background: #1ab17f;
         color: var(--bg);
+      }
+
+      .room-dialog {
+        width: min(390px, calc(100vw - 32px));
+        padding: 18px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--panel-2);
+        color: var(--text);
+      }
+
+      .room-dialog::backdrop {
+        background: rgba(0, 0, 0, 0.72);
+      }
+
+      .room-dialog h2 {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 500;
+      }
+
+      .room-dialog-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .room-dialog .room-dialog-close {
+        display: grid;
+        width: 28px;
+        min-height: 28px;
+        flex: 0 0 28px;
+        padding: 0;
+        place-items: center;
+        border-color: transparent;
+        background: transparent;
+        color: var(--text-dim);
+      }
+
+      .room-dialog-close:hover {
+        border-color: var(--border);
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      .close-icon {
+        width: 16px;
+        height: 16px;
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-width: 1.8;
+      }
+
+      .room-dialog label {
+        display: block;
+        margin: 14px 0 7px;
+        color: var(--text-dim);
+        font-size: 11px;
+      }
+
+      .room-code-row {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto;
+        width: 100%;
+        text-align: center;
+      }
+
+      .room-dialog input {
+        width: 100%;
+        min-width: 0;
+        height: 34px;
+        padding: 0 9px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg);
+        color: var(--text);
+        font: 12px var(--font);
+      }
+
+      .room-dialog #otherRoomCode {
+        text-transform: uppercase;
+      }
+
+      .room-code-row input {
+        height: 48px;
+        padding: 0 48px;
+        border-color: var(--emerald);
+        background: var(--bg);
+        box-shadow: inset 0 0 0 1px rgba(0, 255, 0, 0.12), 0 0 18px rgba(0, 255, 0, 0.08);
+        color: var(--emerald);
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: 4px;
+        text-align: center;
+      }
+
+      .room-dialog button {
+        min-height: 32px;
+        padding: 0 11px;
+        font-size: 11px;
+      }
+
+      .room-code-row .room-code-copy {
+        position: absolute;
+        top: 50%;
+        right: 7px;
+        display: grid;
+        width: 32px;
+        min-height: 32px;
+        padding: 0;
+        place-items: center;
+        transform: translateY(-50%);
+      }
+
+      .room-code-copy .copy-icon {
+        width: 17px;
+        height: 17px;
+      }
+
+      #joinRoomButton {
+        width: 100%;
+        margin-top: 10px;
+        border-color: var(--emerald);
+        background: var(--emerald);
+        color: var(--bg);
+      }
+
+      #joinRoomButton:hover {
+        background: #04df0f;
+      }
+
+      .room-dialog-feedback {
+        min-height: 16px;
+        margin: 8px 0 0;
+        color: var(--err);
+        font-size: 10px;
+      }
+
+      .members-panel {
+        position: fixed;
+        z-index: 10;
+        top: 54px;
+        right: 16px;
+        width: min(280px, calc(100vw - 32px));
+        padding: 14px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--panel-2);
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+      }
+
+      .members-panel[hidden] {
+        display: none;
+      }
+
+      .members-panel h2 {
+        margin: 0 0 12px;
+        color: var(--text);
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      .members-list {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .member-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text);
+        font-size: 11px;
+      }
+
+      .member-status {
+        width: 7px;
+        height: 7px;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        background: var(--ok);
+      }
+
+      .members-empty {
+        margin: 0;
+        color: var(--text-dim);
+        font-size: 11px;
       }
 
       /* Abas */
@@ -233,6 +432,14 @@
         border-top: 1px solid var(--text-dim);
         background: var(--panel-2);
         color: var(--text);
+      }
+
+      .tab.room-owner {
+        border-top: 2px solid var(--yellow);
+      }
+
+      .tab.active.room-owner {
+        border-top-color: var(--yellow);
       }
 
       .tab > span:last-child {
@@ -275,31 +482,169 @@
       .tab-dots {
         display: inline-flex;
         flex: 0 0 auto;
-        gap: 4px;
+        gap: 2px;
         opacity: 0.6;
       }
 
       .tab:hover .tab-dots,
-      .tab.active .tab-dots {
+      .tab.active .tab-dots,
+      .tab.typing .tab-dots {
         opacity: 1;
       }
 
       .tab-dot {
-        width: 5px;
-        height: 5px;
+        width: 4px;
+        height: 4px;
         border-radius: 50%;
+      }
+
+      .tab.typing .tab-dot {
+        animation: typing-wave 750ms ease-in-out infinite;
+        box-shadow: 0 0 4px currentColor;
       }
 
       .tab-dot-blue {
         background: var(--blue);
       }
 
+      .tab.typing .tab-dot-blue {
+        color: var(--blue);
+      }
+
+      .tab.typing .tab-dot-blue {
+        animation-delay: 0ms;
+      }
+
       .tab-dot-red {
         background: var(--red);
       }
 
+      .tab.typing .tab-dot-red {
+        color: var(--red);
+      }
+
+      .tab.typing .tab-dot-red {
+        animation-delay: 140ms;
+      }
+
       .tab-dot-yellow {
         background: var(--yellow);
+      }
+
+      .tab.typing .tab-dot-yellow {
+        color: var(--yellow);
+      }
+
+      .tab.typing .tab-dot-yellow {
+        animation-delay: 280ms;
+      }
+
+      .tab.loading .tab-dots {
+        opacity: 1;
+      }
+
+      .personal-file-loader {
+        position: fixed;
+        z-index: 1000;
+        inset: 0;
+        display: grid;
+        align-content: center;
+        justify-items: center;
+        gap: 24px;
+        background: #000;
+        color: #fff;
+      }
+
+      .personal-file-loader[hidden] {
+        display: none;
+      }
+
+      .personal-file-loader.load-error .tab-dots {
+        display: none;
+      }
+
+      .personal-file-loader .tab-dots {
+        gap: 12px;
+        opacity: 1;
+      }
+
+      .personal-file-loader .tab-dot {
+        width: 14px;
+        height: 14px;
+        animation: dotBounce 1.2s ease-in-out infinite;
+      }
+
+      .personal-file-loader .tab-dot-blue {
+        animation-delay: 0ms;
+      }
+
+      .personal-file-loader .tab-dot-red {
+        animation-delay: 150ms;
+      }
+
+      .personal-file-loader .tab-dot-yellow {
+        animation-delay: 300ms;
+      }
+
+      .personal-file-loader-message {
+        max-width: min(360px, calc(100vw - 40px));
+        margin: 0;
+        color: #d7dbe0;
+        font: 13px/1.5 var(--mono);
+        text-align: center;
+      }
+
+      .personal-file-loader-retry {
+        padding: 8px 14px;
+        border: 1px solid #555b64;
+        border-radius: 4px;
+        background: #17191c;
+        color: #fff;
+        cursor: pointer;
+        font: 12px var(--mono);
+      }
+
+      .tab.load-error {
+        cursor: pointer;
+      }
+
+      .tab.load-error .tab-dots {
+        display: none;
+      }
+
+      .tab-load-error {
+        flex: 0 0 auto;
+        color: var(--red);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      @keyframes dotBounce {
+        0%,
+        60%,
+        100% {
+          transform: translateY(0);
+          opacity: 0.65;
+        }
+
+        30% {
+          transform: translateY(-10px);
+          opacity: 1;
+        }
+      }
+
+      @keyframes typing-wave {
+        0%,
+        60%,
+        100% {
+          transform: translateY(0) scale(1);
+          opacity: 0.7;
+        }
+
+        30% {
+          transform: translateY(-5px) scale(1.25);
+          opacity: 1;
+        }
       }
 
       /* Editor */
@@ -347,13 +692,24 @@
       }
 
       #copyButton {
-        width: 30px;
+        width: auto;
         min-width: 35px;
-        padding: 0;
+        gap: 5px;
+        padding: 0 7px;
         display: inline-flex; 
         align-items: center;   
         justify-content: center; 
-        transform: scaleX(-1);
+      }
+
+      #copyButton .copy-icon {
+        width: 15px;
+        height: 15px;
+      }
+
+      #copyButton .shortcut {
+        margin-left: 0;
+        color: var(--text-dim);
+        white-space: nowrap;
       }
 
       .copy-icon {
@@ -476,8 +832,13 @@
       }
 
       .code-editor::selection {
-        background: #3a3a3a;
-        color: transparent;
+        background: rgba(8, 248, 124, 0.405);
+        color: white;
+      }
+
+      .code-editor::-moz-selection {
+        background: rgba(8, 248, 124, 0.405);
+        color: white;
       }
 
       .syntax-keyword,
@@ -586,6 +947,7 @@
 
       .stdin-form {
         display: flex;
+        align-items: center;
         gap: 8px;
         padding: 8px 12px 12px;
         border-top: 1px solid var(--border);
@@ -607,17 +969,50 @@
         font: 12px var(--font);
       }
 
+      .stdin-form input:disabled {
+        opacity: 0.6;
+      }
+
+      .stdin-actions {
+        display: flex;
+        flex: 0 0 auto;
+        gap: 6px;
+      }
+
       .stdin-form button {
+        display: grid;
+        min-width: 36px;
         height: 28px;
-        padding: 0 12px;
+        padding: 0 8px;
+        place-items: center;
         border-color: var(--emerald);
         background: var(--emerald);
         color: var(--bg);
         font-size: 11px;
       }
 
+      .stdin-form #stdinEofButton {
+        border-color: var(--border);
+        background: var(--panel-2);
+        color: var(--text-dim);
+      }
+
+      .stdin-submit-icon {
+        width: 17px;
+        height: 17px;
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 2.4;
+      }
+
       .prompt {
         color: var(--text-dim);
+        display: inline-block;
+        width: 12px;
+        font-size: 8px;
+        vertical-align: 1px;
       }
 
       .cursor {
@@ -656,6 +1051,7 @@
         z-index: 10;
         display: grid;
         place-items: center;
+        overflow-y: auto;
         padding: 16px;
         background: rgba(0, 0, 0, 0.72);
       }
@@ -666,6 +1062,8 @@
 
       .name-dialog {
         width: min(360px, 100%);
+        max-height: calc(100dvh - 32px);
+        overflow-y: auto;
         padding: 16px;
         border: 1px solid var(--border);
         border-radius: var(--radius);
@@ -780,6 +1178,10 @@
         .cursor {
           animation: none;
         }
+
+        .tab.typing .tab-dot {
+          animation: none;
+        }
       }
 
       @media (max-width: 520px) {
@@ -801,6 +1203,11 @@
           display: none;
         }
 
+        .user-identity {
+          min-width: 0;
+          transform: none;
+        }
+
         .line-numbers {
           width: 36px;
           flex-basis: 36px;
@@ -808,7 +1215,16 @@
         }
 
         .user-identity span:last-child {
-          display: none;
+          display: block;
+          max-width: 76px;
+          overflow: hidden;
+          font-size: 10px;
+          text-overflow: ellipsis;
+        }
+
+        .name-modal {
+          align-items: start;
+          padding-top: max(16px, env(safe-area-inset-top));
         }
 
         .code-highlight,
@@ -818,24 +1234,34 @@
         }
       }
     </style>
+    <script type="module" crossorigin src="/assets/index-8p_7ei8L.js"></script>
   </head>
   <body>
+    <div id="personalFileLoader" class="personal-file-loader" role="status" aria-live="polite">
+      <span class="tab-dots" aria-hidden="true">
+        <span class="tab-dot tab-dot-blue"></span>
+        <span class="tab-dot tab-dot-red"></span>
+        <span class="tab-dot tab-dot-yellow"></span>
+      </span>
+      <p class="personal-file-loader-message" hidden></p>
+      <button class="personal-file-loader-retry" type="button" hidden>Tentar novamente</button>
+    </div>
     <main class="app">
       <!-- Barra superior -->
       <header class="topbar">
-        <button class="user-identity" id="userIdentity" type="button" aria-label="Alterar nome do usuário">
+        <button class="user-identity" id="userIdentity" type="button" aria-label="Alterar nome do usuário" title="Toque para alterar seu nome">
           <span class="user-avatar">JD</span>
-          <span id="userName">João Developer</span>
+          <span id="userName">Usuario</span>
         </button>
         <div class="topbar-actions">
-          <button id="addFileButton" type="button" aria-label="Adicionar arquivo">+</button>
-          <button id="usersButton" type="button">Usuários</button>
+          <button id="inviteUsersButton" type="button" aria-label="Adicionar usuário" title="Copiar convite da sala">+</button>
+          <button id="usersButton" type="button" hidden>Usuários (0/8)</button>
         </div>
       </header>
 
       <!-- Abas de arquivo -->
       <nav class="tabs" aria-label="Arquivos abertos">
-        <button class="tab active" type="button" aria-selected="true">
+        <button class="tab active loading" type="button" aria-selected="true" aria-busy="true" aria-label="main.c, carregando">
           <span class="tab-dots" aria-hidden="true">
             <span class="tab-dot tab-dot-blue"></span>
             <span class="tab-dot tab-dot-red"></span>
@@ -854,7 +1280,7 @@
           <div class="console-toolbar">
             <button id="runButton" type="button">Run <span class="shortcut">Ctrl+Enter</span></button>
             <button id="stopButton" type="button">Stop <span class="shortcut">Esc</span></button>
-            <button id="copyButton" type="button" aria-label="Copiar código" title="Copiar código">
+            <button id="copyButton" type="button" aria-label="Copiar código completo" title="Copiar código completo (Ctrl+Shift+C). Ctrl+C e Ctrl+V copiam/colam a seleção no editor.">
               <svg class="copy-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <rect x="8" y="8" width="11" height="11" rx="1"></rect>
                 <path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"></path>
@@ -883,18 +1309,55 @@ int main() {
           </div>
           <pre id="resultOutput" class="result-output waiting">&gt; aguardando execução <span class="cursor">_</span></pre>
           <form id="stdinForm" class="stdin-form" hidden>
-            <input id="stdinInput" type="text" placeholder="Digite os valores do scanf, separados por espaço" autocomplete="off" />
-            <button type="submit">Executar</button>
+            <input id="stdinInput" type="text" aria-label="Entrada do programa" placeholder="Digite os valores separados por espaço" autocomplete="off" />
+            <div class="stdin-actions">
+              <button id="stdinEofButton" type="button">"Enviar Fim de Arquivo"</button>
+              <button id="stdinSubmitButton" type="submit" aria-label="Enviar entrada e executar" title="Enviar entrada e executar">
+                <svg class="stdin-submit-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M5 12h14M13 5l7 7-7 7"></path>
+                </svg>
+              </button>
+            </div>
           </form>
         </section>
       </section>
       <!-- Barra de status -->
       <footer class="statusbar">
-        <span>Ln 1, Col 1</span>
-        <span class="statusbar-right"><span>C</span><span>0 ms</span></span>
+        <span id="cursorPosition">Ln 1, Col 1</span>
+        <span class="statusbar-right"><span>C</span><span id="executionTime" title="Tempo de execução reportado pelo Judge0; se indisponível, mostra o tempo total da requisição.">0 ms</span></span>
       </footer>
     </main>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <section id="membersPanel" class="members-panel" hidden aria-labelledby="membersTitle">
+      <h2 id="membersTitle">Usuários online</h2>
+      <ul id="membersList" class="members-list"></ul>
+    </section>
+    <dialog id="roomDialog" class="room-dialog" aria-labelledby="roomDialogTitle">
+      <div class="room-dialog-header">
+        <h2 id="roomDialogTitle">Compartilhar ou entrar em uma sala</h2>
+        <button id="closeRoomDialog" class="room-dialog-close" type="button" aria-label="Fechar" title="Fechar">
+          <svg class="close-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18"></path>
+          </svg>
+        </button>
+      </div>
+      <label for="currentRoomCode">Código da sua sala</label>
+      <div class="room-code-row">
+        <input id="currentRoomCode" type="text" readonly />
+        <button id="copyRoomCodeButton" class="room-code-copy" type="button" aria-label="Copiar código da sala" title="Copiar código da sala">
+          <svg class="copy-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="8" y="8" width="11" height="11" rx="1"></rect>
+            <path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"></path>
+          </svg>
+        </button>
+      </div>
+      <form id="joinRoomForm">
+        <label for="otherRoomCode">Entrar na sala de outra pessoa</label>
+        <input id="otherRoomCode" type="text" maxlength="12" autocomplete="off" placeholder="Digite o código da sala" />
+        <p id="roomDialogFeedback" class="room-dialog-feedback" aria-live="polite"></p>
+        <button id="joinRoomButton" type="submit">Entrar</button>
+      </form>
+    </dialog>
     <div id="nameModal" class="name-modal" role="presentation" hidden>
       <form class="name-dialog" id="nameForm" role="dialog" aria-modal="true" aria-labelledby="nameDialogTitle">
         <h2 id="nameDialogTitle">Identificação do usuário</h2>
@@ -917,6 +1380,11 @@ int main() {
       const executionStatus = document.querySelector("#executionStatus");
       const stdinForm = document.querySelector("#stdinForm");
       const stdinInput = document.querySelector("#stdinInput");
+      const stdinSubmitButton = document.querySelector("#stdinSubmitButton");
+      const stdinEofButton = document.querySelector("#stdinEofButton");
+      const runButton = document.querySelector("#runButton");
+      const stopButton = document.querySelector("#stopButton");
+      const copyButton = document.querySelector("#copyButton");
       const userName = document.querySelector("#userName");
       const userAvatar = document.querySelector(".user-avatar");
       const firstPresenceIcon = document.querySelector(".presence-icon");
@@ -925,8 +1393,10 @@ int main() {
       const nameInput = document.querySelector("#nameInput");
       const nameError = document.querySelector("#nameError");
       const cancelNameButton = document.querySelector("#cancelNameButton");
-      let runTimer;
       let toastTimer;
+      let executionSession = null;
+      let activeRunController = null;
+      const MAX_SESSION_INPUTS = 50;
 
       function updateUserIdentity(name) {
         const normalizedName = name.trim().replace(/\s+/g, " ").slice(0, 32);
@@ -941,6 +1411,9 @@ int main() {
         userAvatar.textContent = initials;
         firstPresenceIcon.textContent = initials;
         localStorage.setItem("console-user-name", normalizedName);
+        window.dispatchEvent(new CustomEvent("console:user-name-changed", {
+          detail: { name: normalizedName },
+        }));
       }
 
       function setExecutionStatus(message, state = "") {
@@ -1001,17 +1474,29 @@ int main() {
           (_, index) => index + 1,
         ).join("\n");
         codeHighlight.innerHTML = highlightCode(editor.value);
+        updateCursorPosition();
+      }
+
+      function updateCursorPosition() {
+        const textBeforeCursor = editor.value.slice(0, editor.selectionStart);
+        const lineNumber = textBeforeCursor.split("\n").length;
+        const columnNumber = textBeforeCursor.length - textBeforeCursor.lastIndexOf("\n");
+        document.querySelector("#cursorPosition").textContent =
+          `Ln ${lineNumber}, Col ${columnNumber}`;
       }
 
       function setOutput(message, state) {
         output.className = `result-output ${state}`;
         output.replaceChildren();
-        const prompt = document.createElement("span");
-        const text = document.createElement("span");
-        prompt.className = "prompt";
-        text.textContent = message;
-        prompt.textContent = "● ";
-        output.append(prompt, text);
+        for (const [index, line] of message.split("\n").entries()) {
+          if (index > 0) output.append(document.createTextNode("\n"));
+          const prompt = document.createElement("span");
+          const text = document.createElement("span");
+          prompt.className = "prompt";
+          prompt.textContent = "●";
+          text.textContent = line;
+          output.append(prompt, text);
+        }
       }
 
       function showToast(message) {
@@ -1021,43 +1506,157 @@ int main() {
         toastTimer = window.setTimeout(() => toast.classList.remove("visible"), 1800);
       }
 
-      function setStdinVisible(visible) {
+      function setStdinVisible(visible, busy = false) {
         stdinForm.hidden = !visible;
+        stdinInput.disabled = busy || !visible;
+        stdinSubmitButton.disabled = busy || !visible;
+        stdinEofButton.disabled = busy || !visible || !executionSession;
         if (visible) {
-          stdinInput.value = "";
-          stdinInput.focus();
+          if (!busy && !stdinInput.disabled) stdinInput.focus();
         }
       }
 
-      async function executeWithJudge0(stdin = "") {
-        setOutput("Executando...", "waiting");
+      function renderInteractiveTranscript(session, stdout) {
+        let transcript = "";
+        let offset = 0;
+        for (const entry of session.inputs) {
+          const entryOffset = Math.min(Math.max(entry.stdoutOffset, offset), stdout.length);
+          transcript += stdout.slice(offset, entryOffset);
+          transcript += `${entry.text}\n`;
+          offset = entryOffset;
+        }
+        return transcript + stdout.slice(offset);
+      }
+
+      function createSessionSeed() {
+        return crypto.getRandomValues(new Uint32Array(1))[0];
+      }
+
+      async function executeSession(session, sendEof = false) {
+        const controller = new AbortController();
+        activeRunController = controller;
+        setStdinVisible(!stdinForm.hidden, true);
         setExecutionStatus("Executando...", "waiting");
-        const startedAt = performance.now();
 
         try {
           const response = await fetch("/api/run", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ sourceCode: editor.value, languageId: 50, stdin }),
+            signal: controller.signal,
+            body: JSON.stringify({
+              sourceCode: session.sourceCode,
+              languageId: 50,
+              stdin: session.inputs.map((entry) => `${entry.text}\n`).join(""),
+              sessionSeed: session.seed,
+              sendEof,
+            }),
           });
-          const result = await response.json();
+          const responseText = await response.text();
+          let result;
+          try {
+            result = responseText ? JSON.parse(responseText) : {};
+          } catch {
+            const preview = responseText.replace(/\s+/g, " ").trim().slice(0, 240);
+            const status = `${response.status}${response.statusText ? ` ${response.statusText}` : ""}`;
+            throw new Error(
+              `A API retornou uma resposta inválida (HTTP ${status}).${preview ? ` Resposta: ${preview}` : ""}`,
+            );
+          }
+          if (executionSession !== session) return;
           if (!response.ok) {
             const details = result.details ? ` ${result.details}` : "";
             throw new Error(`${result.error ?? "O backend recusou a execução."}${details}`);
           }
 
-          const message = result.stdout || result.stderr || result.compile_output || result.message || "Programa executado sem saída.";
-          const failed = Boolean(result.compile_output || result.stderr || result.status?.id >= 4);
-          const elapsedMs = Math.round(performance.now() - startedAt);
-          document.querySelector(".statusbar-right span:last-child").textContent =
-            `${result.time ? Math.round(Number(result.time) * 1000) : elapsedMs} ms`;
-          setOutput(message, failed ? "error" : "success");
-          setExecutionStatus(failed ? (result.status?.description ?? "Erro na execução") : "Programa executado com sucesso", failed ? "error" : "success");
+          const stdout = typeof result.stdout === "string" ? result.stdout : "";
+          session.lastStdout = stdout;
+          const transcript = renderInteractiveTranscript(session, stdout);
+          const compileOutput = typeof result.compile_output === "string" ? result.compile_output : "";
+          const stderr = typeof result.stderr === "string" ? result.stderr : "";
+          const statusFailed = result.status?.id >= 4;
+          const failed = Boolean(compileOutput || (stderr && !result.needsInput) || statusFailed);
+          const message = [transcript, compileOutput, stderr].filter(Boolean).join("\n");
+          const waitingForInput = result.needsInput && !failed;
+          document.querySelector("#executionTime").textContent =
+            `${result.time ? Math.round(Number(result.time) * 1000) : 0} ms`;
+
+          setOutput(message || "Programa executado sem saída.", waitingForInput ? "waiting" : failed ? "error" : "success");
+          if (waitingForInput) {
+            runButton.disabled = false;
+            setStdinVisible(true);
+            if (session.inputs.length >= MAX_SESSION_INPUTS) {
+              stdinInput.disabled = true;
+              stdinSubmitButton.disabled = true;
+              setExecutionStatus(`Limite de ${MAX_SESSION_INPUTS} entradas atingido. Envie EOF para continuar.`, "error");
+            } else {
+              stdinInput.value = "";
+              setExecutionStatus("Aguardando entrada", "waiting");
+            }
+            return;
+          }
+
+          executionSession = null;
+          runButton.disabled = false;
+          setStdinVisible(false);
+          setExecutionStatus(
+            failed ? (result.status?.description ?? "Erro na execução") : "Programa executado com sucesso",
+            failed ? "error" : "success",
+          );
         } catch (error) {
+          if (executionSession !== session) return;
           const message = error instanceof Error ? error.message : "Falha desconhecida ao executar.";
+          executionSession = null;
+          runButton.disabled = false;
+          setStdinVisible(false);
           setOutput(message, "error");
           setExecutionStatus("Erro na execução", "error");
+        } finally {
+          if (activeRunController === controller) activeRunController = null;
+          if (executionSession === session) setStdinVisible(!stdinForm.hidden);
         }
+      }
+
+      function startExecutionSession() {
+        activeRunController?.abort();
+        const session = {
+          sourceCode: editor.value,
+          seed: createSessionSeed(),
+          inputs: [],
+          lastStdout: "",
+        };
+        executionSession = session;
+        stdinInput.value = "";
+        setOutput("Executando...", "waiting");
+        runButton.disabled = true;
+        setStdinVisible(false);
+        void executeSession(session);
+      }
+
+      function submitSessionInput(sendEof = false) {
+        const session = executionSession;
+        if (!session || activeRunController) return;
+
+        const input = stdinInput.value;
+        if (!sendEof && session.inputs.length >= MAX_SESSION_INPUTS) {
+          stdinInput.disabled = true;
+          stdinSubmitButton.disabled = true;
+          setExecutionStatus(`Limite de ${MAX_SESSION_INPUTS} entradas atingido. Envie EOF para continuar.`, "error");
+          return;
+        }
+        if (sendEof && input && session.inputs.length >= MAX_SESSION_INPUTS) {
+          setExecutionStatus(`Limite de ${MAX_SESSION_INPUTS} entradas atingido. Apague a entrada ou envie EOF.`, "error");
+          return;
+        }
+
+        if (input || !sendEof) {
+          session.inputs.push({
+            text: input,
+            stdoutOffset: session.lastStdout.length,
+          });
+        }
+        stdinInput.value = "";
+        setStdinVisible(true, true);
+        void executeSession(session, sendEof);
       }
 
       function splitArguments(value) {
@@ -1119,6 +1718,9 @@ int main() {
         localStorage.setItem("console-source-code", editor.value);
         updateLineNumbers();
       });
+      editor.addEventListener("click", updateCursorPosition);
+      editor.addEventListener("keyup", updateCursorPosition);
+      editor.addEventListener("select", updateCursorPosition);
       editor.addEventListener("scroll", () => {
         lineNumbers.scrollTop = editor.scrollTop;
         codeHighlight.scrollTop = editor.scrollTop;
@@ -1130,44 +1732,43 @@ int main() {
         const start = editor.selectionStart;
         const end = editor.selectionEnd;
         editor.setRangeText("  ", start, end, "end");
-        updateLineNumbers();
+        editor.dispatchEvent(new Event("input", { bubbles: true }));
       });
 
-      document.querySelector("#copyButton").addEventListener("click", async () => {
-        await navigator.clipboard.writeText(editor.value);
-        showToast("Código copiado.");
-      });
-
-      document.querySelector("#runButton").addEventListener("click", () => {
-        window.clearTimeout(runTimer);
-        setStdinVisible(/\bscanf\s*\(/.test(editor.value));
-        if (/\bscanf\s*\(/.test(editor.value)) {
-          setOutput("Entrada necessária para scanf.", "waiting");
-          setExecutionStatus("Aguardando entrada", "waiting");
-          return;
+      async function copyEditorCode() {
+        try {
+          await navigator.clipboard.writeText(editor.value);
+          showToast("Código copiado.");
+        } catch (error) {
+          console.error("Não foi possível copiar o código:", error);
+          showToast("Não foi possível acessar a área de transferência.");
         }
-        executeWithJudge0();
+      }
+
+      copyButton.addEventListener("click", () => void copyEditorCode());
+
+      runButton.addEventListener("click", () => {
+        startExecutionSession();
       });
 
       stdinForm.addEventListener("submit", (event) => {
         event.preventDefault();
-        setStdinVisible(false);
-        executeWithJudge0(stdinInput.value);
+        submitSessionInput();
       });
+      stdinEofButton.addEventListener("click", () => submitSessionInput(true));
 
-      document.querySelector("#stopButton").addEventListener("click", () => {
-        window.clearTimeout(runTimer);
+      stopButton.addEventListener("click", () => {
+        const session = executionSession;
+        executionSession = null;
+        activeRunController?.abort();
+        activeRunController = null;
+        runButton.disabled = false;
         setStdinVisible(false);
         setExecutionStatus("Execução interrompida", "error");
-        showToast("Execução interrompida.");
-      });
-
-      document.querySelector("#addFileButton").addEventListener("click", () => {
-        showToast("Adicionar arquivo ficará disponível na próxima etapa.");
-      });
-
-      document.querySelector("#usersButton").addEventListener("click", () => {
-        showToast("Colaboração ficará disponível na próxima etapa.");
+        if (session) {
+          setOutput("Execução interrompida.", "error");
+          showToast("Execução interrompida.");
+        }
       });
 
       function closeNameModal() {
@@ -1201,12 +1802,33 @@ int main() {
         showToast("Nome atualizado.");
       });
       document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" && !nameModal.hidden) closeNameModal();
+        if (event.key === "Escape" && !nameModal.hidden) {
+          closeNameModal();
+          return;
+        }
+        if (event.key === "Escape" && !document.querySelector("#roomDialog").open) {
+          stopButton.click();
+          return;
+        }
+        if (document.querySelector("#roomDialog").open || !nameModal.hidden) return;
+
+        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+          event.preventDefault();
+          runButton.click();
+        } else if (
+          (event.ctrlKey || event.metaKey) &&
+          event.shiftKey &&
+          event.key.toLowerCase() === "c"
+        ) {
+          event.preventDefault();
+          void copyEditorCode();
+        }
       });
 
       const savedCode = localStorage.getItem("console-source-code");
       if (savedCode !== null) editor.value = savedCode;
-      updateUserIdentity(localStorage.getItem("console-user-name") ?? "João Developer");
+      const savedUserName = localStorage.getItem("console-user-name");
+      updateUserIdentity(savedUserName === "João Developer" ? "Usuario" : savedUserName ?? "Usuario");
       updateLineNumbers();
     </script>
   </body>

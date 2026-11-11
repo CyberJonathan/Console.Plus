@@ -1,1 +1,1 @@
-{"root":["./src/env.d.ts","./src/main.ts","./server/index.ts"],"version":"5.9.3"}
+{"root":["./src/collaboration.ts","./src/env.d.ts","./src/main.ts","./server/index.ts","./server/judge0.ts","./api/run.ts"],"version":"5.9.3"}

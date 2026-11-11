@@ -377,13 +377,41 @@
       }
 
       .room-dialog-feedback {
-        min-height: 16px;
-        margin: 8px 0;
+        position: absolute;
+        z-index: 2;
+        top: 50%;
+        left: 50%;
+        width: max-content;
+        max-width: calc(100% - 12px);
+        margin: 0;
+        padding: 9px 14px;
+        transform: translate(-50%, -50%) scale(0.96);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--panel-2);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
         color: var(--err);
-        font-size: 10px;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.35;
+        text-align: center;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 120ms ease, transform 120ms ease;
+      }
+
+      .room-dialog-feedback[hidden] {
+        display: none;
+      }
+
+      .room-dialog-feedback.visible {
+        transform: translate(-50%, -50%) scale(1);
+        opacity: 1;
       }
 
       .room-dialog-feedback.success {
+        border-color: var(--ok);
+        background: var(--panel);
         color: var(--ok);
       }
 
@@ -1392,6 +1420,7 @@ int main() {
       <label for="currentRoomCode">Código da sua sala</label>
       <div class="room-code-row">
         <input id="currentRoomCode" type="text" readonly />
+        <p id="roomDialogFeedback" class="room-dialog-feedback" role="status" aria-live="polite" hidden></p>
         <button id="copyRoomCodeButton" class="room-code-copy" type="button" aria-label="Copiar código da sala" title="Copiar código da sala">
           <svg class="copy-icon" viewBox="0 0 24 24" aria-hidden="true">
             <rect x="8" y="8" width="11" height="11" rx="1"></rect>
@@ -1399,7 +1428,6 @@ int main() {
           </svg>
         </button>
       </div>
-      <p id="roomDialogFeedback" class="room-dialog-feedback" aria-live="polite"></p>
       <form id="joinRoomForm">
         <label for="otherRoomCode">Entrar na sala de outra pessoa</label>
         <input id="otherRoomCode" type="text" maxlength="12" autocomplete="off" placeholder="Digite o código da sala" />

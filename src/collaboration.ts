@@ -205,6 +205,18 @@ function cacheRoomState(roomCode: string, members: Record<string, unknown>, user
   }
 }
 
+function updateLeaveRoomButton(): void {
+  const userId = getLocalUserId();
+  const hasOtherMembers = Object.keys(roomMembers).some((memberId) => memberId !== userId);
+  let wasShared = false;
+  try {
+    wasShared = localStorage.getItem(`console-room-shared:${roomCode}`) === "1";
+  } catch (error) {
+    console.error("Não foi possível verificar se a sala já foi compartilhada:", error);
+  }
+  leaveRoomButton!.hidden = soloMode || !roomJoined || (!hasOtherMembers && !wasShared);
+}
+
 function getLocalUserId(): string | null {
   if (soloMode) return soloUserId;
   const firebaseUserId = firebaseApp ? getAuth(firebaseApp).currentUser?.uid : null;
@@ -340,6 +352,7 @@ async function joinRoom(
     pruneInactiveMembers(nextMembers);
     latestMembers = nextMembers;
     roomMembers = latestMembers;
+    updateLeaveRoomButton();
     try {
       localStorage.setItem(`console-room-members:${roomCode}`, JSON.stringify(roomMembers));
     } catch (error) {
@@ -428,9 +441,16 @@ if (soloMode) {
 }
 const ydoc = new Y.Doc();
 const localPersistence = new IndexeddbPersistence(`console-room-${roomCode}`, ydoc);
-const signalingUrl = import.meta.env.VITE_YJS_SIGNALING_URL || "wss://signaling.yjs.dev";
+const configuredSignalingUrl = import.meta.env.VITE_YJS_SIGNALING_URL;
+const defaultSignalingUrls = ["wss://y-webrtc-eu.fly.dev", "wss://y-webrtc-us.fly.dev"];
+const signalingUrls = !configuredSignalingUrl ||
+    configuredSignalingUrl === defaultSignalingUrls[0] ||
+    configuredSignalingUrl === "wss://signaling.yjs.dev" ||
+    configuredSignalingUrl === "wss://signaling.yjs.dev/"
+  ? defaultSignalingUrls
+  : [configuredSignalingUrl];
 const provider = new WebrtcProvider(`console-room-${roomCode}`, ydoc, {
-  signaling: [signalingUrl],
+  signaling: signalingUrls,
 });
 let activeFileKey = "main.c";
 let activeText: Y.Text | null = null;
@@ -441,6 +461,7 @@ let roomCleanup: (() => Promise<void>) | undefined;
 let providerSynced = false;
 let providerReportedSynced = false;
 let remoteWebrtcPeerCount = 0;
+const knownWebrtcPeers = new Set<string>();
 let syncWaitTimeout: number | undefined;
 let localPersistenceReady = false;
 let localPersistenceFailed = false;
@@ -702,6 +723,16 @@ editor!.addEventListener("blur", stopLocalTyping);
 
 provider.awareness.on("change", updateTypingIndicators);
 provider.on("peers", ({ webrtcPeers }: { webrtcPeers: string[] }) => {
+  const currentPeers = new Set(webrtcPeers);
+  const hasNewPeer = [...currentPeers].some((peerId) => !knownWebrtcPeers.has(peerId));
+  if (hasNewPeer) {
+    // y-webrtc keeps its room-level synced flag after peers leave; reset it for this new handshake.
+    providerReportedSynced = false;
+    providerSynced = false;
+    if (provider.room) provider.room.synced = false;
+  }
+  knownWebrtcPeers.clear();
+  currentPeers.forEach((peerId) => knownWebrtcPeers.add(peerId));
   remoteWebrtcPeerCount = webrtcPeers.length;
   providerSynced = providerReportedSynced && remoteWebrtcPeerCount > 0;
   renderTabs(roomMembers, activeFileKey, selectFile);
@@ -714,8 +745,7 @@ provider.on("status", ({ connected }: { connected: boolean }) => {
   }
 });
 provider.on("synced", ({ synced }: { synced: boolean }) => {
-  // Keep the first successful sync: y-webrtc may not emit another "synced" after reconnecting.
-  providerReportedSynced ||= synced;
+  providerReportedSynced = synced;
   providerSynced = providerReportedSynced && remoteWebrtcPeerCount > 0;
   renderTabs(roomMembers, activeFileKey, selectFile);
   if (providerSynced) {
@@ -744,6 +774,7 @@ void localPersistence.whenSynced.then(() => {
 
 window.addEventListener("offline", () => {
   providerSynced = false;
+  providerReportedSynced = false;
   showToast("Você está offline. O código permanece salvo neste navegador.");
   if (!collaborationReady) finishCollaborationSetup();
   if (!collaborationReady && !soloMode) {
@@ -763,6 +794,8 @@ function openRoomDialog(): void {
   clearTimeout(roomDialogFeedbackTimer);
   roomDialogFeedback!.textContent = "";
   roomDialogFeedback!.classList.remove("success");
+  roomDialogFeedback!.classList.remove("visible");
+  roomDialogFeedback!.hidden = true;
   roomDialog!.showModal();
 }
 
@@ -772,18 +805,26 @@ function showRoomDialogFeedback(message: string, success = false): void {
   clearTimeout(roomDialogFeedbackTimer);
   roomDialogFeedback!.textContent = message;
   roomDialogFeedback!.classList.toggle("success", success);
-  if (success) {
-    roomDialogFeedbackTimer = window.setTimeout(() => {
-      roomDialogFeedback!.textContent = "";
-      roomDialogFeedback!.classList.remove("success");
-      roomDialogFeedbackTimer = undefined;
-    }, 2500);
-  }
+  roomDialogFeedback!.hidden = false;
+  roomDialogFeedback!.classList.add("visible");
+  roomDialogFeedbackTimer = window.setTimeout(() => {
+    roomDialogFeedback!.classList.remove("visible");
+    roomDialogFeedback!.classList.remove("success");
+    roomDialogFeedback!.hidden = true;
+    roomDialogFeedbackTimer = undefined;
+  }, 3000);
 }
 
 async function copyRoomCode(): Promise<void> {
   try {
     await navigator.clipboard.writeText(roomCode);
+    try {
+      localStorage.setItem(`console-room-shared:${roomCode}`, "1");
+    } catch (error) {
+      console.error("Não foi possível registrar que a sala foi compartilhada:", error);
+      showToast("O código foi copiado, mas o estado de compartilhamento não será lembrado.");
+    }
+    updateLeaveRoomButton();
     showRoomDialogFeedback(`Código ${roomCode} copiado.`, true);
   } catch (error) {
     console.error("Não foi possível copiar o código da sala:", error);
@@ -920,7 +961,7 @@ async function authenticateAndJoin(): Promise<void> {
     roomMembers = members;
     roomJoined = true;
     localOnlyFallback = false;
-    leaveRoomButton!.hidden = false;
+    updateLeaveRoomButton();
     if (
       Object.keys(roomMembers).some((memberId) => memberId !== user.uid) &&
       !providerSynced

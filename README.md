@@ -182,8 +182,10 @@ O Firebase fornece autenticação anônima e presença da sala. O conteúdo dos
 arquivos é sincronizado por Yjs/WebRTC, não pelo Firebase, e também é mantido
 localmente em IndexedDB para recuperação no mesmo navegador. A sinalização
 WebRTC usa `VITE_YJS_SIGNALING_URL`, que por padrão aponta para
-`wss://signaling.yjs.dev`. Um servidor próprio pode ser iniciado com
-`npm run signaling` em uma hospedagem que mantenha WebSockets ativos.
+`wss://y-webrtc-eu.fly.dev` e `wss://y-webrtc-us.fly.dev`. O endereço antigo
+`wss://signaling.yjs.dev` é migrado automaticamente para esses servidores. Um
+servidor próprio pode ser iniciado com `npm run signaling` em uma hospedagem
+que mantenha WebSockets ativos.
 
 O app registra a sala atual pelo UID anônimo do Firebase. Ao abrir o app sem
 código de sala, ele retoma a sala existente desse UID; se a sala anterior
@@ -196,9 +198,11 @@ dispositivos. Salas antigas sem registro de sala atual não podem ser localizada
 automaticamente; o dono precisa reabri-las uma vez para registrar a sala, ou
 removê-las manualmente no Firebase.
 
-O botão de saída remove o participante da presença da sala e abre uma sessão
-solo com um documento Yjs e cache IndexedDB separados. Essa sessão não entra no
-Firebase nem exibe ações de compartilhamento.
+O botão de saída só aparece depois que o código da sala é copiado para
+compartilhamento ou quando outro participante entra. Ele remove o participante
+da presença da sala e abre uma sessão solo com um documento Yjs e cache
+IndexedDB separados. Essa sessão não entra no Firebase nem exibe ações de
+compartilhamento.
 
 Para publicar o app, configure as variáveis `VITE_FIREBASE_*` e
 `VITE_YJS_SIGNALING_URL` no ambiente de build do frontend. Em uma hospedagem

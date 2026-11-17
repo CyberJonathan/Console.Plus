@@ -1,0 +1,60 @@
+
+      @media (prefers-reduced-motion: reduce) {
+        .cursor {
+          animation: none;
+        }
+
+        .tab.typing .tab-dot {
+          animation: none;
+        }
+      }
+
+      @media (max-width: 520px) {
+        .topbar {
+          padding: 8px;
+        }
+
+        .code-editor {
+          padding: 16px 8px;
+        }
+
+        .result-panel {
+          height: 34%;
+        }
+      }
+
+      @media (max-width: 600px) {
+        .shortcut {
+          display: none;
+        }
+
+        .user-identity {
+          min-width: 0;
+          transform: none;
+        }
+
+        .line-numbers {
+          width: 36px;
+          flex-basis: 36px;
+          padding-right: 8px;
+        }
+
+        .user-identity span:last-child {
+          display: block;
+          max-width: 76px;
+          overflow: hidden;
+          font-size: 10px;
+          text-overflow: ellipsis;
+        }
+
+        .name-modal {
+          align-items: start;
+          padding-top: max(16px, env(safe-area-inset-top));
+        }
+
+        .code-highlight,
+        .code-editor {
+          padding-left: 8px;
+          padding-right: 8px;
+        }
+      }

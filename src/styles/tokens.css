@@ -1,0 +1,100 @@
+  /* Tokens */
+      :root {
+        color-scheme: dark;
+        --bg: #0d0d0d;
+        --panel: #161616;
+        --panel-2: #1e1e1e;
+        --border: #2a2a2a;
+        --text: #cfcfcf;
+        --text-dim: #7a7a7a;
+        --hover: #262626;
+        --ok: #6fbf73;
+        --err: #d9605a;
+        --emerald: #06bf2e;
+        --danger: #b94b4b;
+        --user: #8b8f96;
+        --library: #6fbf73;
+        --data: #6f9fd0;
+        --radius: 2px;
+        --gap: 8px;
+        --blue: #5d8dcc;
+        --red: #c96a6a;
+        --yellow: #c7a85a;
+        --font: "JetBrains Mono", monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+      }
+
+      body {
+        min-width: 320px;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font);
+        font-size: 13px;
+      }
+
+      button,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--panel-2);
+        color: var(--text);
+        cursor: pointer;
+        user-select: none;
+        transition: background-color 120ms, color 120ms;
+      }
+
+      button:hover {
+        background: var(--hover);
+      }
+
+      button:active {
+        background: var(--bg);
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.4;
+      }
+
+      button:focus-visible,
+      textarea:focus-visible {
+        outline: 1px solid var(--text-dim);
+        outline-offset: -1px;
+      }
+
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+
+      ::-webkit-scrollbar-track {
+        background: var(--bg);
+      }
+
+      ::-webkit-scrollbar-thumb {
+        background: var(--border);
+      }
+
+      ::-webkit-scrollbar-thumb:hover {
+        background: var(--text-dim);
+      }
+
+      ::selection {
+        background: #3a3a3a;
+        color: #ffffff;
+      }

@@ -1,0 +1,25 @@
+
+      /* Barra de status */
+      .statusbar {
+        display: flex;
+        min-height: 24px;
+        height: 24px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 12px;
+        border-top: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text-dim);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .statusbar-right {
+        display: flex;
+        gap: 16px;
+      }
+
+      .statusbar-right span + span {
+        padding-left: 16px;
+        border-left: 1px solid var(--border);
+      }

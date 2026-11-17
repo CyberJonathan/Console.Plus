@@ -1,0 +1,278 @@
+
+      /* Abas */
+      .tabs {
+        display: flex;
+        min-height: 36px;
+        overflow-x: auto;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel);
+        scrollbar-width: none;
+      }
+
+      .tabs::-webkit-scrollbar {
+        display: none;
+      }
+
+      .tab {
+        display: flex;
+        min-width: 120px;
+        max-width: 220px;
+        height: 36px;
+        align-items: center;
+        gap: var(--gap);
+        padding: 0 12px;
+        border: 0;
+        border-radius: 0;
+        border-right: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text-dim);
+        text-align: left;
+      }
+
+      .tab.active {
+        margin-bottom: -1px;
+        border-top: 1px solid var(--text-dim);
+        background: var(--panel-2);
+        color: var(--text);
+      }
+
+      .tab.room-owner {
+        border-top: 2px solid var(--yellow);
+      }
+
+      .tab.active.room-owner {
+        border-top-color: var(--yellow);
+      }
+
+      .tab > span:last-child {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .tab-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .presence-icons {
+        display: inline-flex;
+        flex: 0 0 auto;
+        margin-left: auto;
+      }
+
+      .presence-icon {
+        display: grid;
+        width: 14px;
+        height: 14px;
+        margin-left: -3px;
+        place-items: center;
+        border: 1px solid var(--panel);
+        border-radius: 50%;
+        background: var(--user);
+        color: var(--bg);
+        font-size: 7px;
+        font-weight: 500;
+      }
+
+      .presence-icon:first-child {
+        margin-left: 0;
+      }
+
+      .tab-dots {
+        display: inline-flex;
+        flex: 0 0 auto;
+        gap: 2px;
+        opacity: 0.6;
+      }
+
+      .tab:hover .tab-dots,
+      .tab.active .tab-dots,
+      .tab.typing .tab-dots {
+        opacity: 1;
+      }
+
+      .tab-dot {
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+      }
+
+      .tab.typing .tab-dot {
+        animation: typing-wave 750ms ease-in-out infinite;
+        box-shadow: 0 0 4px currentColor;
+      }
+
+      .tab-dot-blue {
+        background: var(--blue);
+      }
+
+      .tab.typing .tab-dot-blue {
+        color: var(--blue);
+      }
+
+      .tab.typing .tab-dot-blue {
+        animation-delay: 0ms;
+      }
+
+      .tab-dot-red {
+        background: var(--red);
+      }
+
+      .tab.typing .tab-dot-red {
+        color: var(--red);
+      }
+
+      .tab.typing .tab-dot-red {
+        animation-delay: 140ms;
+      }
+
+      .tab-dot-yellow {
+        background: var(--yellow);
+      }
+
+      .tab.typing .tab-dot-yellow {
+        color: var(--yellow);
+      }
+
+      .tab.typing .tab-dot-yellow {
+        animation-delay: 280ms;
+      }
+
+      .tab.loading .tab-dots {
+        opacity: 1;
+      }
+
+      .personal-file-loader {
+        position: fixed;
+        z-index: 1000;
+        inset: 0;
+        display: grid;
+        align-content: center;
+        justify-items: center;
+        gap: 24px;
+        background: #000;
+        color: #fff;
+      }
+
+      .personal-file-loader[hidden] {
+        display: none;
+      }
+
+      .personal-file-loader.load-error .tab-dots {
+        display: none;
+      }
+
+      .personal-file-loader .tab-dots {
+        gap: 12px;
+        opacity: 1;
+      }
+
+      .personal-file-loader .tab-dot {
+        width: 14px;
+        height: 14px;
+        animation: dotBounce 1.2s ease-in-out infinite;
+      }
+
+      .personal-file-loader .tab-dot-blue {
+        animation-delay: 0ms;
+      }
+
+      .personal-file-loader .tab-dot-red {
+        animation-delay: 150ms;
+      }
+
+      .personal-file-loader .tab-dot-yellow {
+        animation-delay: 300ms;
+      }
+
+      .personal-file-loader-message {
+        max-width: min(360px, calc(100vw - 40px));
+        margin: 0;
+        color: #d7dbe0;
+        font: 13px/1.5 var(--mono);
+        text-align: center;
+      }
+
+      .personal-file-loader-retry {
+        padding: 8px 14px;
+        border: 1px solid #555b64;
+        border-radius: 4px;
+        background: #17191c;
+        color: #fff;
+        cursor: pointer;
+        font: 12px var(--mono);
+      }
+
+      .remote-sync-status {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 8px 12px;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        color: var(--text-dim);
+        font: 11px/1.5 var(--mono);
+      }
+
+      .remote-sync-status[hidden] {
+        display: none;
+      }
+
+      .remote-sync-retry {
+        flex: 0 0 auto;
+        padding: 5px 9px;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        background: var(--panel-2);
+        color: var(--text);
+        cursor: pointer;
+        font: inherit;
+      }
+
+      .tab.load-error {
+        cursor: pointer;
+      }
+
+      .tab.load-error .tab-dots {
+        display: none;
+      }
+
+      .tab-load-error {
+        flex: 0 0 auto;
+        color: var(--red);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      @keyframes dotBounce {
+        0%,
+        60%,
+        100% {
+          transform: translateY(0);
+          opacity: 0.65;
+        }
+
+        30% {
+          transform: translateY(-10px);
+          opacity: 1;
+        }
+      }
+
+      @keyframes typing-wave {
+        0%,
+        60%,
+        100% {
+          transform: translateY(0) scale(1);
+          opacity: 0.7;
+        }
+
+        30% {
+          transform: translateY(-5px) scale(1.25);
+          opacity: 1;
+        }
+      }

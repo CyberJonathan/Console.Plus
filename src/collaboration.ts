@@ -16,6 +16,7 @@ import {
 import * as Y from "yjs";
 import { IndexeddbPersistence } from "y-indexeddb";
 import { WebrtcProvider } from "y-webrtc";
+import type { HocuspocusResources } from "./collaboration/hocuspocus.js";
 
 const MAX_ROOM_MEMBERS = 8;
 const MEMBER_HEARTBEAT_INTERVAL_MS = 15_000;
@@ -29,6 +30,11 @@ const toast = document.querySelector<HTMLElement>("#toast");
 const membersPanel = document.querySelector<HTMLElement>("#membersPanel");
 const membersList = document.querySelector<HTMLUListElement>("#membersList");
 const tabs = document.querySelector<HTMLElement>(".tabs");
+const localPersistenceStatus = document.querySelector<HTMLElement>("#localPersistenceStatus");
+const presenceStatus = document.querySelector<HTMLElement>("#presenceStatus");
+const webrtcStatus = document.querySelector<HTMLElement>("#webrtcStatus");
+const centralSyncStatus = document.querySelector<HTMLElement>("#centralSyncStatus");
+const centralPersistenceStatus = document.querySelector<HTMLElement>("#centralPersistenceStatus");
 const remoteSyncStatus = document.querySelector<HTMLElement>("#remoteSyncStatus");
 const remoteSyncMessage = remoteSyncStatus?.querySelector<HTMLElement>(".remote-sync-message");
 const remoteSyncRetry = remoteSyncStatus?.querySelector<HTMLButtonElement>(".remote-sync-retry");
@@ -56,7 +62,9 @@ int main() {
 
 if (
   !editor || !usersButton || !inviteUsersButton || !leaveRoomButton || !toast || !membersPanel || !membersList ||
-  !tabs || !remoteSyncStatus || !remoteSyncMessage || !remoteSyncRetry ||
+  !tabs || !localPersistenceStatus || !presenceStatus || !webrtcStatus ||
+  !centralSyncStatus || !centralPersistenceStatus ||
+  !remoteSyncStatus || !remoteSyncMessage || !remoteSyncRetry ||
   !personalFileLoader || !personalFileLoaderMessage || !personalFileLoaderRetry ||
   !roomDialog || !currentRoomCode || !copyRoomCodeButton || !closeRoomDialog ||
   !joinRoomForm || !otherRoomCode
@@ -268,6 +276,221 @@ function getProviderConnectionHealth(activeProvider: WebrtcProvider): boolean {
   );
 }
 
+function renderCollaborationStatus(): void {
+  localPersistenceStatus!.textContent = `IndexedDB: ${
+    localPersistenceAvailable ? "disponível" : "carregando"
+  }`;
+  presenceStatus!.textContent = presenceAvailable
+    ? "Firebase: disponível"
+    : presenceError
+      ? "Firebase: indisponível"
+      : roomJoined
+        ? "Firebase: desconectado"
+        : "Firebase: aguardando";
+  webrtcStatus!.textContent = `WebRTC: ${
+    providerReportedSynced
+      ? "documento sincronizado"
+      : provider.connected
+        ? "conectado"
+        : "desconectado"
+  }`;
+
+  if (!hocuspocusEnabled) {
+    centralSyncStatus!.textContent = "Hocuspocus: desativado";
+    centralPersistenceStatus!.textContent = "PostgreSQL: desativado";
+    return;
+  }
+  if (hocuspocusConfigurationError) {
+    centralSyncStatus!.textContent = "Hocuspocus: configuração inválida";
+  } else if (centralDocumentSynced) {
+    centralSyncStatus!.textContent = "Hocuspocus: documento sincronizado";
+  } else if (centralConnected) {
+    centralSyncStatus!.textContent = "Hocuspocus: conectado, sincronizando";
+  } else if (centralResources) {
+    centralSyncStatus!.textContent = "Hocuspocus: desconectado";
+  } else {
+    centralSyncStatus!.textContent = "Hocuspocus: aguardando entrada na sala";
+  }
+
+  switch (centralPersistenceState) {
+    case "disabled":
+      centralPersistenceStatus!.textContent = "PostgreSQL: desativado";
+      break;
+    case "awaiting":
+      centralPersistenceStatus!.textContent = "PostgreSQL: aguardando confirmação";
+      break;
+    case "pending":
+      centralPersistenceStatus!.textContent = "PostgreSQL: gravação pendente";
+      break;
+    case "saved":
+      centralPersistenceStatus!.textContent = `PostgreSQL: salvo${
+        centralPersistenceSavedAt ? ` (${centralPersistenceSavedAt})` : ""
+      }`;
+      break;
+    case "error":
+      centralPersistenceStatus!.textContent = "PostgreSQL: erro de persistência";
+      break;
+  }
+}
+
+function setLocalTypingState(fileKey: string | null): void {
+  provider.awareness.setLocalStateField("consolePlusTyping", fileKey);
+  centralResources?.provider.awareness?.setLocalStateField("consolePlusTyping", fileKey);
+}
+
+async function hashCurrentYjsState(): Promise<string> {
+  const state = Y.encodeStateAsUpdate(ydoc);
+  const digestInput = new Uint8Array(state.byteLength);
+  digestInput.set(state);
+  const digest = await crypto.subtle.digest("SHA-256", digestInput.buffer);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function handleCentralStatelessMessage(payload: string): Promise<void> {
+  let message: unknown;
+  try {
+    message = JSON.parse(payload);
+  } catch (error) {
+    console.warn("Mensagem stateless inválida recebida do Hocuspocus:", error);
+    return;
+  }
+  if (!message || typeof message !== "object" || !("type" in message)) return;
+
+  if (message.type === "persistence-error") {
+    centralPersistenceState = "error";
+    renderCollaborationStatus();
+    showToast("O servidor central não conseguiu persistir as alterações.");
+    return;
+  }
+  if (
+    message.type !== "persisted" ||
+    !("stateHash" in message) ||
+    typeof message.stateHash !== "string" ||
+    !/^[a-f0-9]{64}$/.test(message.stateHash)
+  ) return;
+
+  lastCentralPersistedHash = message.stateHash;
+  centralPersistenceSavedAt = "";
+  await verifyCentralPersistenceAcknowledgement(message.stateHash);
+}
+
+async function verifyCentralPersistenceAcknowledgement(expectedHash: string | null): Promise<void> {
+  if (!expectedHash) return;
+  try {
+    const localStateHash = await hashCurrentYjsState();
+    if (lastCentralPersistedHash !== expectedHash) return;
+    if (localStateHash === expectedHash) {
+      centralPersistenceState = "saved";
+      centralPersistenceSavedAt = "confirmado";
+    } else {
+      centralPersistenceState = "pending";
+      centralPersistenceSavedAt = "";
+    }
+  } catch (error) {
+    centralPersistenceState = "error";
+    console.error("Não foi possível verificar a confirmação PostgreSQL:", error);
+  }
+  renderCollaborationStatus();
+}
+
+async function startHocuspocusProvider(
+  user: { getIdToken: () => Promise<string> },
+): Promise<void> {
+  if (
+    !hocuspocusEnabled ||
+    !hocuspocusUrl ||
+    soloMode ||
+    localOnlyFallback ||
+    centralResources ||
+    centralStarting
+  ) return;
+
+  centralStarting = true;
+  try {
+    const { createHocuspocusResources } = await import("./collaboration/hocuspocus.js");
+    centralResources = createHocuspocusResources({
+      url: hocuspocusUrl,
+      name: `console-room-${roomCode}`,
+      document: ydoc,
+      token: () => user.getIdToken(),
+    });
+  } catch (error) {
+    centralPersistenceState = "error";
+    console.error("Não foi possível criar o provider Hocuspocus:", error);
+    renderCollaborationStatus();
+    return;
+  } finally {
+    centralStarting = false;
+  }
+
+  const resources = centralResources;
+  resources.provider.awareness?.on("change", updateTypingIndicators);
+  resources.provider.on("status", ({ status }: { status: string }) => {
+    if (resources !== centralResources) return;
+    centralConnected = status === "connected";
+    if (!centralConnected) centralDocumentSynced = false;
+    renderCollaborationStatus();
+    updateRoomOnlineStatus();
+    scheduleRemoteSyncTimeout();
+  });
+  resources.provider.on("synced", ({ state }: { state: boolean }) => {
+    if (resources !== centralResources) return;
+    centralDocumentSynced = state;
+    if (state) void verifyCentralPersistenceAcknowledgement(lastCentralPersistedHash);
+    renderCollaborationStatus();
+    if (state) {
+      clearRemoteSyncTimeout();
+      finishCollaborationSetup();
+    } else {
+      scheduleRemoteSyncTimeout();
+    }
+    updateRoomOnlineStatus();
+  });
+  resources.provider.on("authenticationFailed", ({ reason }: { reason: string }) => {
+    if (resources !== centralResources) return;
+    centralConnected = false;
+    centralDocumentSynced = false;
+    centralPersistenceState = "error";
+    console.error("Autenticação Hocuspocus recusada:", reason);
+    renderCollaborationStatus();
+    showToast("O servidor central recusou a autenticação ou o acesso à sala.");
+  });
+  resources.provider.on("stateless", ({ payload }: { payload: string }) => {
+    if (resources === centralResources) void handleCentralStatelessMessage(payload);
+  });
+  resources.provider.on("unsyncedChanges", () => {
+    if (resources !== centralResources || centralPersistenceState === "error") return;
+    centralPersistenceState = "pending";
+    renderCollaborationStatus();
+  });
+
+  const markCentralPersistencePending = (_update: Uint8Array, origin: unknown) => {
+    if (origin === resources.provider) {
+      void verifyCentralPersistenceAcknowledgement(lastCentralPersistedHash);
+      return;
+    }
+    centralPersistenceState = "pending";
+    centralPersistenceSavedAt = "";
+    renderCollaborationStatus();
+  };
+  ydoc.on("update", markCentralPersistencePending);
+  const centralTokenRefreshTimer = window.setInterval(() => {
+    if (resources === centralResources && centralConnected) {
+      void resources.provider.sendToken();
+    }
+  }, 45 * 60 * 1_000);
+  centralPersistenceState = "awaiting";
+  window.__consolePlusCollaboration = {
+    roomName: `console-room-${roomCode}`,
+    doc: ydoc,
+    persistence: localPersistence,
+    provider,
+    central: resources,
+    centralTokenRefreshTimer,
+  };
+  renderCollaborationStatus();
+}
+
 function renderTabs(
   members: Record<string, unknown>,
   activeFileKey: string,
@@ -356,6 +579,10 @@ async function joinRoom(
   let databaseConnected = navigator.onLine;
   const connectedListener = onValue(connectedRef, (snapshot) => {
     databaseConnected = snapshot.val() === true;
+    if (roomJoined) {
+      presenceAvailable = databaseConnected && navigator.onLine;
+      renderCollaborationStatus();
+    }
   });
   let latestMembers: Record<string, unknown> = {};
   const legacyMemberSeenAt = new Map<string, number>();
@@ -456,6 +683,9 @@ async function joinRoom(
     roomMembers = latestMembers;
     const ownerId = result.snapshot.child("ownerId").val() as string;
     roomOwnerId = ownerId;
+    presenceAvailable = databaseConnected && navigator.onLine;
+    presenceError = false;
+    renderCollaborationStatus();
     cacheRoomState(
       roomCode,
       roomMembers,
@@ -487,12 +717,48 @@ async function joinRoom(
 const roomCode = getRoomCode();
 const soloMode = new URLSearchParams(location.search).get("solo") === "1";
 let roomWasShared = localStorage.getItem(`console-room-shared:${roomCode}`) === "1";
+const hocuspocusEnabled = import.meta.env.VITE_HOCUSPOCUS_ENABLED === "true";
+
+function resolveHocuspocusUrl(): string | null {
+  const configuredUrl = import.meta.env.VITE_HOCUSPOCUS_URL?.trim();
+  const url = configuredUrl || (import.meta.env.DEV
+    ? `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/collaboration`
+    : "");
+  if (!url) return null;
+
+  const parsedUrl = new URL(url, location.href);
+  if (parsedUrl.protocol !== "ws:" && parsedUrl.protocol !== "wss:") {
+    throw new Error("A URL do Hocuspocus precisa usar ws:// ou wss://.");
+  }
+  if (location.protocol === "https:" && parsedUrl.protocol !== "wss:") {
+    throw new Error("Uma página HTTPS exige uma conexão Hocuspocus segura (wss://).");
+  }
+  return parsedUrl.toString();
+}
+
+let hocuspocusUrl: string | null = null;
+let hocuspocusConfigurationError = "";
+if (hocuspocusEnabled) {
+  try {
+    hocuspocusUrl = resolveHocuspocusUrl();
+    if (!hocuspocusUrl) {
+      throw new Error("Defina VITE_HOCUSPOCUS_URL para habilitar o Hocuspocus.");
+    }
+  } catch (error) {
+    hocuspocusConfigurationError = error instanceof Error
+      ? error.message
+      : "Configuração inválida do Hocuspocus.";
+    console.error("Configuração do Hocuspocus inválida:", error);
+  }
+}
 
 interface CollaborationResources {
   roomName: string;
   doc: Y.Doc;
   persistence: IndexeddbPersistence;
   provider: WebrtcProvider;
+  central?: HocuspocusResources;
+  centralTokenRefreshTimer?: number;
 }
 
 declare global {
@@ -503,6 +769,15 @@ declare global {
 
 const existingResources = window.__consolePlusCollaboration;
 if (existingResources) {
+  if (existingResources.centralTokenRefreshTimer !== undefined) {
+    window.clearInterval(existingResources.centralTokenRefreshTimer);
+  }
+  if (existingResources.central) {
+    existingResources.central.provider.awareness?.off("change", updateTypingIndicators);
+    existingResources.central.provider.destroy();
+    existingResources.central.websocket.destroy();
+    existingResources.central.awarenessDocument.destroy();
+  }
   existingResources.provider.destroy();
   void existingResources.persistence.destroy().catch((error: unknown) => {
     console.error("Não foi possível encerrar a persistência anterior do Yjs:", error);
@@ -573,6 +848,8 @@ function createProvider(): WebrtcProvider {
 }
 
 let provider = createProvider();
+let centralResources: HocuspocusResources | null = null;
+let centralStarting = false;
 window.__consolePlusCollaboration = {
   roomName: `console-room-${roomCode}`,
   doc: ydoc,
@@ -588,6 +865,15 @@ let roomCleanup: (() => Promise<void>) | undefined;
 let isNewRoomMember = false;
 let providerSynced = false;
 let providerReportedSynced = false;
+let centralConnected = false;
+let centralDocumentSynced = false;
+let centralPersistenceState: "disabled" | "awaiting" | "pending" | "saved" | "error" =
+  hocuspocusEnabled ? "awaiting" : "disabled";
+let centralPersistenceSavedAt = "";
+let lastCentralPersistedHash: string | null = null;
+let presenceAvailable = false;
+let presenceError = false;
+let localPersistenceAvailable = false;
 let remoteWebrtcPeerCount = 0;
 const knownWebrtcPeers = new Set<string>();
 let roomOnline = false;
@@ -604,6 +890,10 @@ let lastEditorValue = "";
 let pendingLocalDraft: string | null = null;
 let typingIdleTimeout: number | undefined;
 let localTyping = false;
+if (hocuspocusConfigurationError) {
+  centralPersistenceState = "error";
+}
+renderCollaborationStatus();
 const cachedUserId = soloMode ? soloUserId : localStorage.getItem(`console-room-user:${roomCode}`);
 let roomOwnerId = soloMode ? soloUserId : localStorage.getItem(`console-room-owner:${roomCode}`);
 if (cachedUserId) {
@@ -751,7 +1041,11 @@ function setPersonalFileError(message: string): void {
 
 function updateTypingIndicators(): void {
   const typingFileKeys = new Set<string>();
-  for (const state of provider.awareness.getStates().values()) {
+  const awarenessStates = new Map(provider.awareness.getStates());
+  for (const [clientId, state] of centralResources?.provider.awareness?.getStates() ?? []) {
+    awarenessStates.set(clientId, state);
+  }
+  for (const state of awarenessStates.values()) {
     const fileKey = state.consolePlusTyping;
     if (typeof fileKey === "string") typingFileKeys.add(fileKey);
   }
@@ -795,7 +1089,7 @@ function stopLocalTyping(): void {
   typingIdleTimeout = undefined;
   localTyping = false;
   if (activeFileKey.startsWith("personal:")) {
-    provider.awareness.setLocalStateField("consolePlusTyping", null);
+    setLocalTypingState(null);
   }
   updateTypingIndicators();
 }
@@ -861,6 +1155,18 @@ function finishCollaborationSetup(): void {
   ) return;
   const personalFile = getOrCreateFile(`personal:${userId}`);
 
+  if (
+    hocuspocusEnabled &&
+    !localOnlyFallback &&
+    personalFile.length === 0 &&
+    !centralDocumentSynced &&
+    !providerReportedSynced
+  ) {
+    personalFileState = "loading";
+    renderPersonalFileState();
+    return;
+  }
+
   const hasOtherRoomMembers = Object.keys(roomMembers).some((memberId) => memberId !== userId);
   const hasCachedPersonalFile = personalFile.length > 0;
   if (!providerSynced && hasOtherRoomMembers && !hasCachedPersonalFile && !isNewRoomMember) {
@@ -903,7 +1209,7 @@ function finishCollaborationSetup(): void {
 function updateRoomOnlineStatus(): void {
   const userId = getLocalUserId();
   const hasOtherRoomMembers = Object.keys(roomMembers).some((memberId) => memberId !== userId);
-  const collaborationHealthy = getProviderConnectionHealth(provider);
+  const collaborationHealthy = getProviderConnectionHealth(provider) || centralDocumentSynced;
   if (!hasOtherRoomMembers || !collaborationHealthy || !navigator.onLine || localOnlyFallback) {
     if (roomOnline && (!hasOtherRoomMembers || !collaborationHealthy || !navigator.onLine)) {
       roomOnline = false;
@@ -930,7 +1236,7 @@ function clearRemoteSyncTimeout(): void {
 function scheduleRemoteSyncTimeout(): void {
   const userId = getLocalUserId();
   const hasOtherMembers = Object.keys(roomMembers).some((memberId) => memberId !== userId);
-  const providerConnected = getProviderConnectionHealth(provider);
+  const providerConnected = getProviderConnectionHealth(provider) || centralDocumentSynced;
   if (!roomJoined || !hasOtherMembers || providerConnected) {
     clearRemoteSyncTimeout();
     return;
@@ -939,7 +1245,11 @@ function scheduleRemoteSyncTimeout(): void {
 
   syncWaitTimeout = window.setTimeout(() => {
     syncWaitTimeout = undefined;
-    if (!roomJoined || getProviderConnectionHealth(provider)) return;
+    if (
+      !roomJoined ||
+      getProviderConnectionHealth(provider) ||
+      centralDocumentSynced
+    ) return;
     const stillHasOtherMembers = Object.keys(roomMembers).some(
       (memberId) => memberId !== getLocalUserId(),
     );
@@ -976,7 +1286,12 @@ function retryRemoteSync(): void {
     doc: ydoc,
     persistence: localPersistence,
     provider,
+    ...(centralResources ? { central: centralResources } : {}),
+    ...(window.__consolePlusCollaboration?.centralTokenRefreshTimer !== undefined
+      ? { centralTokenRefreshTimer: window.__consolePlusCollaboration.centralTokenRefreshTimer }
+      : {}),
   };
+  centralResources?.websocket.connect();
   bindProviderListeners(provider);
   logDebugEvent("Provider destruído e recriado pelo usuário");
   renderTabs(roomMembers, activeFileKey, selectFile);
@@ -1011,7 +1326,7 @@ editor!.addEventListener("input", () => {
     updateYTextIncrementally(activeText, lastEditorValue, nextValue);
     lastEditorValue = nextValue;
     if (activeFileKey.startsWith("personal:")) {
-      provider.awareness.setLocalStateField("consolePlusTyping", activeFileKey);
+      setLocalTypingState(activeFileKey);
     }
   } else if (roomJoined) {
     pendingLocalDraft = editor!.value;
@@ -1047,6 +1362,7 @@ function bindProviderListeners(activeProvider: WebrtcProvider): void {
     currentPeers.forEach((peerId) => knownWebrtcPeers.add(peerId));
     remoteWebrtcPeerCount = webrtcPeers.length;
     providerSynced = getProviderConnectionHealth(activeProvider);
+    renderCollaborationStatus();
     renderTabs(roomMembers, activeFileKey, selectFile);
     if (providerSynced) {
       clearRemoteSyncTimeout();
@@ -1060,6 +1376,7 @@ function bindProviderListeners(activeProvider: WebrtcProvider): void {
     if (activeProvider !== provider) return;
     logDebugEvent(`Status do provider: ${connected ? "conectado" : "desconectado"}`);
     providerSynced = getProviderConnectionHealth(activeProvider);
+    renderCollaborationStatus();
     if (!connected) scheduleRemoteSyncTimeout();
     if (!connected && roomOnline) {
       roomOnline = false;
@@ -1072,6 +1389,7 @@ function bindProviderListeners(activeProvider: WebrtcProvider): void {
     logDebugEvent(`Evento synced: ${synced}`);
     providerReportedSynced = synced;
     providerSynced = getProviderConnectionHealth(activeProvider);
+    renderCollaborationStatus();
     renderTabs(roomMembers, activeFileKey, selectFile);
     if (providerSynced) {
       clearRemoteSyncTimeout();
@@ -1088,15 +1406,20 @@ function bindProviderListeners(activeProvider: WebrtcProvider): void {
 
   providerReportedSynced = activeProvider.room?.synced ?? false;
   providerSynced = getProviderConnectionHealth(activeProvider);
+  renderCollaborationStatus();
   if (providerSynced) finishCollaborationSetup();
 }
 
 void localPersistence.whenSynced.then(() => {
   localPersistenceReady = true;
+  localPersistenceAvailable = true;
+  renderCollaborationStatus();
   renderTabs(roomMembers, activeFileKey, selectFile);
   finishCollaborationSetup();
 }).catch((error: unknown) => {
   localPersistenceFailed = true;
+  localPersistenceAvailable = false;
+  renderCollaborationStatus();
   console.error("Falha ao carregar o cache local Yjs:", error);
   if (providerSynced) {
     finishCollaborationSetup();
@@ -1110,6 +1433,8 @@ void localPersistence.whenSynced.then(() => {
 window.addEventListener("offline", () => {
   providerSynced = false;
   providerReportedSynced = false;
+  presenceAvailable = false;
+  renderCollaborationStatus();
   updateRoomOnlineStatus();
   showToast("Você está offline. O código permanece salvo neste navegador.");
   if (!collaborationReady) finishCollaborationSetup();
@@ -1150,6 +1475,9 @@ function reconnectProviderOnResume(reason: string): void {
     if (reconnecting) {
       provider.disconnect();
       provider.connect();
+    }
+    if (centralResources && (!centralConnected || !centralDocumentSynced)) {
+      centralResources.websocket.connect();
     }
     if (reconnecting) {
       logDebugEvent(`Reconexão solicitada: ${reason}`);
@@ -1285,6 +1613,8 @@ async function authenticateAndJoin(): Promise<void> {
     return;
   }
   if (!firebaseApp) {
+    presenceError = true;
+    renderCollaborationStatus();
     usersButton!.textContent = "Sala indisponível";
     setPersonalFileError("Firebase ainda não configurado. Crie o arquivo .env.local.");
     return;
@@ -1303,9 +1633,13 @@ async function authenticateAndJoin(): Promise<void> {
     roomOwnerId = ownerId;
     roomMembers = members;
     roomJoined = true;
+    presenceAvailable = true;
+    presenceError = false;
+    renderCollaborationStatus();
     logDebugEvent(`Entrada na sala confirmada: ${roomCode}`);
     isNewRoomMember = joinedAsNewMember;
     localOnlyFallback = false;
+    void startHocuspocusProvider(user);
     updateLeaveRoomButton();
     scheduleRemoteSyncTimeout();
     cacheRoomState(roomCode, roomMembers, user.uid, ownerId);
@@ -1331,6 +1665,8 @@ async function authenticateAndJoin(): Promise<void> {
       : "";
     if ((!navigator.onLine || /network|unavailable/i.test(errorCode)) && cachedUserId) {
       localOnlyFallback = true;
+      presenceAvailable = false;
+      presenceError = false;
       isRoomOwner = roomOwnerId === cachedUserId || roomOwnerId === "true";
       if (roomOwnerId === "true") roomOwnerId = cachedUserId;
       renderTabs(roomMembers, activeFileKey, selectFile);
@@ -1339,6 +1675,9 @@ async function authenticateAndJoin(): Promise<void> {
         setPersonalFileError("Offline: arquivo pessoal indisponível neste navegador.");
       }
     } else {
+      presenceAvailable = false;
+      presenceError = true;
+      renderCollaborationStatus();
       usersButton!.textContent = "Sala indisponível";
       setPersonalFileError(message);
     }

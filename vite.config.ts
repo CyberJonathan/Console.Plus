@@ -10,6 +10,10 @@ export default defineConfig({
         target: "ws://localhost:3001",
         ws: true,
       },
+      "/collaboration": {
+        target: "ws://localhost:3002",
+        ws: true,
+      },
     },
   },
 });

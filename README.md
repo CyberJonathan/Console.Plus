@@ -11,7 +11,8 @@ usam `scanf`, compartilhamento de salas e execução remota pelo Judge0.
 - Salvamento do código e do nome de exibição no armazenamento local do
   navegador.
 - Salas colaborativas com arquivos pessoais, presença e até oito participantes.
-- Sincronização do código por Yjs/WebRTC e cache local em IndexedDB.
+- Sincronização do código por Yjs/WebRTC, com integração Hocuspocus opcional
+  durante a transição, e cache local em IndexedDB.
 - Execução de C pelo Judge0, incluindo entrada interativa: cada resposta
   reexecuta o programa com as entradas acumuladas.
 - Atalhos: `Ctrl+Enter`/`Cmd+Enter` para executar, `Esc` para interromper e
@@ -39,7 +40,9 @@ separados; os estilos permanecem organizados em `src/styles/`.
 │   │   ├── compiler.ts           # Contrato independente do backend
 │   │   ├── compiler-service.ts   # Implementação remota atual via Judge0
 │   │   └── types.ts              # Contratos da execução compartilhados
-│   ├── collaboration.ts          # Firebase, Yjs, WebRTC e IndexedDB
+│   ├── collaboration.ts          # Salas, presença, Yjs, IndexedDB e providers
+│   ├── collaboration/
+│   │   └── hocuspocus.ts         # Provider WebSocket central opt-in
 │   ├── services/
 │   │   └── api.ts                # Cliente HTTP de /api/run
 │   ├── storage/
@@ -58,7 +61,13 @@ separados; os estilos permanecem organizados em `src/styles/`.
 │   └── monaco/                   # Experimento separado com Monaco e y-monaco
 ├── server/
 │   ├── index.ts                  # API Express e signaling para desenvolvimento
-│   └── judge0.ts                 # Validação e integração compartilhada com Judge0
+│   ├── judge0.ts                 # Validação e integração compartilhada com Judge0
+│   └── collaboration/
+│       ├── server.ts             # Processo Hocuspocus separado
+│       ├── authorization.ts      # Autorização Firebase de documentos/salas
+│       ├── persistence.ts        # Extensões Hocuspocus para PostgreSQL
+│       └── migrations/
+│           └── 001_yjs_documents.sql
 ├── api/
 │   └── run.ts                    # Adaptador serverless da rota /api/run
 ├── public/
@@ -88,11 +97,14 @@ entrada.
 | `src/services/api.ts` | Envio tipado para `POST /api/run` e tratamento de respostas/erros HTTP. | `/api/run`, tipos em `src/compiler/types.ts`. |
 | `src/storage/local-storage.ts` | Leitura e gravação do código e nome de exibição nas chaves locais existentes. | `localStorage`; não altera as chaves persistidas pela colaboração. |
 | `src/styles/index.css` e `src/styles/*.css` | Entrada de estilos e módulos separados por responsabilidade visual: tokens, layout, abas, editor, status, utilitários e responsividade. | Importados pela página principal; os seletores precisam corresponder à marcação de `index.html`. |
-| `src/collaboration.ts` | Identidade anônima, salas/presença, lista e ordem dos arquivos, sincronização Yjs, persistência IndexedDB, WebRTC, reconexão e diagnóstico. | Firebase Auth/Realtime Database, `yjs`, `y-indexeddb`, `y-webrtc` e os elementos/eventos de `index.html`. |
+| `src/collaboration.ts` | Identidade anônima, salas/presença, arquivos, IndexedDB, WebRTC e estado do provider central opt-in. | Firebase Auth/Realtime Database, `yjs`, `y-indexeddb`, `y-webrtc` e o módulo `src/collaboration/hocuspocus.ts`. |
+| `src/collaboration/hocuspocus.ts` | Criação e ciclo de vida do provider Hocuspocus e da awareness central. | `@hocuspocus/provider`, `y-protocols` e o `Y.Doc` da sala. |
 | `server/index.ts` | Servidor Express local: endpoint de execução, saúde e WebSocket `/signaling`. | `server/judge0.ts`, `ws` e o processo Node. |
+| `server/collaboration/server.ts` | Servidor Hocuspocus independente, com validação Firebase e inicialização do schema PostgreSQL. | `server/collaboration/authorization.ts`, `server/collaboration/persistence.ts`, Firebase Admin e `pg`. |
+| `server/collaboration/persistence.ts` | Carregamento/gravação binária do estado Yjs e confirmação de gravação aos clientes. | Extensão oficial `@hocuspocus/extension-database` e PostgreSQL. |
 | `server/judge0.ts` | Validação e preparação comum das submissões, instrumentação de entrada/tempo e chamada HTTP ao Judge0. | Consumido pelo Express e pela função serverless. |
 | `api/run.ts` | Adaptador da rota serverless `POST /api/run`; impõe o limite de timeout dessa hospedagem. | Reutiliza `server/judge0.ts`; não mantém uma segunda implementação do protocolo Judge0. |
-| `vite.config.ts` | Servidor de desenvolvimento e proxy de `/api` e WebSocket `/signaling` para o Express. | Backend local em `localhost:3001`. |
+| `vite.config.ts` | Servidor de desenvolvimento e proxy de `/api`, `/signaling` e `/collaboration`. | Express local em `localhost:3001` e Hocuspocus em `localhost:3002`. |
 | `firebase.database.rules.json` | Regras de acesso aos nós `users` e `rooms` do Realtime Database. | Deve ser publicado no projeto Firebase utilizado pelo frontend. |
 | `.env.example` | Nomes e exemplos das variáveis de configuração. | Copie para `.env.local` localmente; os segredos do backend ficam no ambiente do servidor. |
 | `experiments/monaco/main.ts`, `experiments/monaco/style.css` | Experimento separado com Monaco e `y-monaco`. | Não participam da página e do fluxo principal atuais. |
@@ -170,6 +182,8 @@ VITE_FIREBASE_STORAGE_BUCKET=
 VITE_FIREBASE_MESSAGING_SENDER_ID=
 VITE_FIREBASE_APP_ID=
 VITE_YJS_SIGNALING_URL=ws://localhost:5173/signaling
+VITE_HOCUSPOCUS_ENABLED=false
+VITE_HOCUSPOCUS_URL=ws://localhost:5173/collaboration
 ```
 
 No Firebase:
@@ -199,6 +213,25 @@ npm run dev:all
 
 `JUDGE0_AUTH_TOKEN` é opcional e só deve ser configurada se a instância Judge0
 exigir autenticação. Não use o prefixo `VITE_` para esse segredo.
+
+O cliente Hocuspocus é desativado por padrão. Para iniciar o serviço local
+central, configure também no ambiente do processo Node:
+
+```dotenv
+HOCUSPOCUS_ENABLED=true
+HOCUSPOCUS_PORT=3002
+DATABASE_URL=postgresql://console:senha@localhost:5432/console
+FIREBASE_PROJECT_ID=
+FIREBASE_DATABASE_URL=
+FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON=
+HOCUSPOCUS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+```
+
+`FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON` deve conter o JSON da conta de serviço
+Firebase; trate-o como segredo e nunca o versione. Em produção, configure-o no
+gerenciador de segredos do serviço. As variáveis sem prefixo `VITE_` são lidas
+pelo processo Node e não são carregadas automaticamente de `.env.local` pelo
+servidor Hocuspocus.
 
 Inicie frontend e backend juntos:
 
@@ -231,8 +264,10 @@ Se alterar a porta do backend com `PORT`, atualize também o destino do proxy em
 | --- | --- |
 | `npm run dev` | Inicia o servidor de desenvolvimento Vite |
 | `npm run server` | Inicia a API Express local |
-| `npm run dev:all` | Inicia Vite e Express em conjunto |
+| `npm run collaboration` | Inicia Hocuspocus quando `HOCUSPOCUS_ENABLED=true`; caso contrário, encerra sem abrir porta |
+| `npm run dev:all` | Inicia Vite, Express e o processo Hocuspocus opcional |
 | `npm run build` | Executa a verificação TypeScript e cria a build Vite em `dist/` |
+| `npm test` | Executa testes de autorização e sincronização; o teste PostgreSQL requer `DATABASE_URL` |
 | `npm run signaling` | Inicia um servidor de sinalização WebSocket `y-webrtc` |
 
 ### Fluxo detalhado de compilação e execução
@@ -671,13 +706,109 @@ não o lugar para corrigir o código-fonte.
   todas as redes que bloqueiam conexões peer-to-peer. Adicionar TURN é uma
   decisão de infraestrutura separada.
 
+## Coexistência experimental WebRTC + Hocuspocus
+
+A migração centralizada está implementada como caminho **opt-in**. O frontend
+mantém WebRTC ativo e, quando `VITE_HOCUSPOCUS_ENABLED=true`, conecta também um
+`HocuspocusProvider` ao mesmo `Y.Doc`. O provider central só é criado depois
+que Firebase confirma a entrada do UID na sala. O provider Hocuspocus e o
+provider WebRTC usam awareness separada para evitar colisão de IDs de presença;
+os indicadores de digitação são publicados em ambos.
+
+Os providers observam o mesmo documento Yjs. O Hocuspocus Provider ignora
+updates cujo `origin` é ele próprio; o `y-webrtc` encaminha updates do
+documento. Updates Yjs repetidos são idempotentes e não geram uma nova
+atualização no documento. O teste de integração verifica a convergência do
+provider central e a aplicação repetida de updates; a troca WebRTC real entre
+navegadores ainda requer validação manual.
+
+O nome do documento (`console-room-<CODIGO>`), os nomes dos `Y.Text`
+(`console-file-personal:<uid>`) e o banco IndexedDB existente são preservados.
+O Hocuspocus não reconstrói conteúdo a partir do textarea nem apaga ou renomeia
+dados locais. Ao entrar numa sala com o modo central habilitado, o estado Yjs
+disponível no cliente e nos peers conectados converge pelo próprio CRDT e pode
+ser persistido centralmente. Salas que ninguém abrir no novo modo **não** são
+copiadas automaticamente para PostgreSQL; mantenha os navegadores/caches
+legados necessários disponíveis durante a migração de cada sala.
+
+O status na interface separa IndexedDB, presença Firebase, WebRTC, handshake
+Hocuspocus e confirmação de gravação PostgreSQL. O handshake Hocuspocus sozinho
+não é apresentado como confirmação de persistência. A confirmação de banco só
+é enviada pelo servidor depois do `UPSERT` bem-sucedido e só aparece como
+“salvo” se o hash do estado atual do cliente corresponder ao snapshot confirmado.
+Falhas de banco são registradas no backend e notificadas aos clientes conectados
+à sala.
+
+### Servidor e segurança
+
+O servidor Hocuspocus roda em processo separado, por `npm run collaboration`,
+na porta `HOCUSPOCUS_PORT` (padrão `3002`). Isso deixa intactos o Express,
+`/api/run`, `/api/health` e o signaling WebRTC em `/signaling`. Em
+desenvolvimento, o Vite encaminha `/collaboration` ao novo processo. Em
+produção, publique Hocuspocus como serviço Node de longa duração com WebSocket
+e configure `VITE_HOCUSPOCUS_URL` com a URL `wss://` desse serviço.
+
+O servidor exige PostgreSQL, o ID/URL do projeto Firebase, uma credencial
+Firebase Admin e uma lista explícita de origens permitidas. O hook de
+autenticação verifica o ID token (incluindo revogação), valida o nome do
+documento e consulta `rooms/<CODIGO>/members/<uid>`; se uma dessas validações
+falhar, a conexão é recusada. A conexão também renova e revalida o token e a
+participação na sala periodicamente. O modo Hocuspocus não tem fallback permissivo.
+Os membros autorizados conservam as permissões atuais: todos podem editar os
+textos da sala.
+
+Na inicialização, o processo verifica a conexão PostgreSQL e aplica a migration
+idempotente `server/collaboration/migrations/001_yjs_documents.sql`. Os estados
+Yjs são guardados em `BYTEA`, identificados pelo nome do documento. A gravação
+usa debounce no servidor e a confirmação ao cliente é emitida somente após a
+gravação terminar. Há um teste de integração PostgreSQL que reinicia o servidor
+e confirma a recuperação do documento; ele é ignorado por `npm test` quando
+`DATABASE_URL` não está definida. Esta primeira versão não usa Redis nem suporta
+várias instâncias Hocuspocus.
+
+### Ativação local e produção
+
+Para testar localmente:
+
+1. Configure `VITE_HOCUSPOCUS_ENABLED=true` e
+   `VITE_HOCUSPOCUS_URL=ws://localhost:5173/collaboration` no `.env.local`.
+2. Exporte `HOCUSPOCUS_ENABLED=true`, `DATABASE_URL`,
+   `FIREBASE_PROJECT_ID`, `FIREBASE_DATABASE_URL`,
+   `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON` e
+   `HOCUSPOCUS_ALLOWED_ORIGINS` no processo Node. Não coloque credenciais no
+   frontend nem em arquivos versionados.
+3. Execute `npm run dev:all`. O processo Hocuspocus encerra normalmente sem
+   abrir uma porta se `HOCUSPOCUS_ENABLED` não estiver definido como `true`.
+
+Para voltar ao fluxo anterior, defina `VITE_HOCUSPOCUS_ENABLED=false` e
+reconstrua o frontend. O WebRTC, o IndexedDB e os documentos centrais já
+gravados não são apagados por essa mudança.
+
+As versões Hocuspocus usadas são `3.4.4`; a versão 4 exige Node 22. O README do
+projeto declara Node 18 ou superior e o ambiente local desta implementação
+reportou Node 22.22.1. O repositório não contém configuração que permita
+confirmar a versão de Node atualmente usada pelo serviço Render; confirme-a
+antes de ativar o serviço central em produção. Não foi feito deploy.
+
+### Validação manual ainda necessária
+
+- Executar o teste PostgreSQL com uma instância real definida em `DATABASE_URL`.
+- Validar token Firebase Admin, membership e origens com credenciais reais.
+- Abrir dois navegadores na mesma sala com os dois providers habilitados e editar
+  dos dois lados.
+- Confirmar gravação PostgreSQL, reiniciar o serviço e confirmar recuperação.
+- Testar um cliente IndexedDB legado e um cliente offline antes/depois da
+  reconexão central.
+- Repetir regressões de presença, arquivos pessoais, Judge0, entrada interativa
+  e interrupção da execução.
+
 ## Limitações conhecidas
 
 - Não há contas permanentes; os participantes entram anonimamente.
 - O código da sala é o convite. O limite de oito membros é aplicado no cliente,
   não como uma garantia de segurança no servidor.
-- O código não tem persistência central: o cache IndexedDB é local ao navegador
-  e pode ser apagado pelos dados do site.
+- A persistência central depende de Hocuspocus opt-in; sem ele, o cache
+  IndexedDB continua local ao navegador e pode ser apagado pelos dados do site.
 - A entrada interativa repete a execução inteira no Judge0 para cada resposta.
 - **Stop** cancela a requisição HTTP do navegador, mas não garante que uma
   execução já recebida pelo Judge0 seja encerrada.

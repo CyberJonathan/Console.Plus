@@ -55,6 +55,13 @@
           </span>
         </button>
       </nav>
+      <div class="collaboration-status" role="status" aria-live="polite">
+        <span id="localPersistenceStatus">IndexedDB: carregando</span>
+        <span id="presenceStatus">Firebase: aguardando</span>
+        <span id="webrtcStatus">WebRTC: aguardando</span>
+        <span id="centralSyncStatus">Hocuspocus: desativado</span>
+        <span id="centralPersistenceStatus">PostgreSQL: desativado</span>
+      </div>
       <div id="remoteSyncStatus" class="remote-sync-status" role="status" aria-live="polite" hidden>
         <span class="remote-sync-message"></span>
         <button class="remote-sync-retry" type="button">Tentar novamente</button>

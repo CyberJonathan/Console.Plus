@@ -219,6 +219,15 @@
         font: 11px/1.5 var(--mono);
       }
 
+      .collaboration-status {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 14px;
+        margin: 6px 12px;
+        color: var(--text-dim);
+        font: 10px/1.5 var(--mono);
+      }
+
       .remote-sync-status[hidden] {
         display: none;
       }

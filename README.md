@@ -19,41 +19,53 @@ usam `scanf`, compartilhamento de salas e execução remota pelo Judge0.
 
 ## Como o projeto está organizado
 
-O app carregado pelo Vite começa em `index.html`. A interface e a lógica do
-editor e da execução estão no próprio HTML; a integração de colaboração é
-carregada por `src/collaboration.ts`.
+O app carregado pelo Vite começa em `index.html`. O HTML contém a marcação da
+interface e a lógica do editor e da execução; os estilos ficam organizados em
+`src/styles/`, e a integração de colaboração é carregada por
+`src/collaboration.ts`.
 
 ```text
 .
-├── index.html                    # Interface principal e lógica do editor
+├── index.html                    # Interface principal e lógica do editor/execução
 ├── src/
 │   ├── collaboration.ts          # Firebase, Yjs, WebRTC e IndexedDB
-│   ├── main.ts                   # Protótipo alternativo com Monaco; não é carregado pelo app principal
-│   └── style.css                 # Estilos do protótipo Monaco
+│   ├── env.d.ts                  # Tipos das variáveis de ambiente do Vite
+│   └── styles/
+│       ├── index.css             # Entrada que importa os módulos de estilo
+│       ├── tokens.css            # Tokens e estilos globais
+│       ├── layout.css            # Estrutura e painéis
+│       ├── tabs.css              # Abas e presença
+│       ├── editor.css            # Editor e console
+│       ├── statusbar.css         # Barra de status
+│       ├── utilities.css         # Classes utilitárias
+│       └── responsive.css        # Ajustes responsivos
+├── experiments/
+│   └── monaco/                   # Experimento separado com Monaco e y-monaco
 ├── server/
-│   ├── index.ts                  # API Express para desenvolvimento local
+│   ├── index.ts                  # API Express e signaling para desenvolvimento
 │   └── judge0.ts                 # Validação e integração compartilhada com Judge0
 ├── api/
-│   └── run.ts                    # Função serverless da rota /api/run
+│   └── run.ts                    # Adaptador serverless da rota /api/run
+├── public/
+│   └── favicon.png               # Ícone servido pelo Vite
 ├── firebase.database.rules.json  # Regras do Realtime Database
 ├── .env.example                  # Modelo das variáveis de ambiente
 ├── vite.config.ts                # Vite e proxy local de /api
-├── app.js                        # Protótipo legado; não é carregado por index.html
-├── styles.css                    # Estilos do protótipo legado
 └── package.json                  # Dependências e comandos
 ```
 
-`src/main.ts` é uma implementação alternativa e não é importada pela página
-principal. O protótipo `app.js`/`styles.css` também não é usado pelo fluxo
-principal. Para alterar a aplicação publicada, comece por `index.html`,
-`src/collaboration.ts` ou pelos módulos do backend; alterar um protótipo não
-altera a página principal.
+`experiments/monaco/main.ts` e `experiments/monaco/style.css` são arquivos
+experimentais: não são importados pela página principal. Para alterar a
+aplicação publicada, comece por `index.html`, `src/styles/`,
+`src/collaboration.ts` ou pelos módulos do backend; alterar o experimento não
+altera o app principal.
 
 ### Responsabilidades e dependências entre arquivos
 
 | Arquivo | Responsabilidade | Depende de / conversa com |
 | --- | --- | --- |
-| `index.html` | Marcações da interface, estilos principais e JavaScript do editor, realce visual, execução e entrada interativa. | `/api/run`, `localStorage` e os elementos que `src/collaboration.ts` encontra pelo seletor HTML. |
+| `index.html` | Marcações da interface e JavaScript do editor, realce visual, execução e entrada interativa. | `src/styles/index.css`, `/api/run`, `localStorage` e os elementos que `src/collaboration.ts` encontra pelo seletor HTML. |
+| `src/styles/index.css` e `src/styles/*.css` | Entrada de estilos e módulos separados por responsabilidade visual: tokens, layout, abas, editor, status, utilitários e responsividade. | Importados pela página principal; os seletores precisam corresponder à marcação de `index.html`. |
 | `src/collaboration.ts` | Identidade anônima, salas/presença, lista e ordem dos arquivos, sincronização Yjs, persistência IndexedDB, WebRTC, reconexão e diagnóstico. | Firebase Auth/Realtime Database, `yjs`, `y-indexeddb`, `y-webrtc` e os elementos de `index.html`. |
 | `server/index.ts` | Servidor Express local: endpoint de execução, saúde e WebSocket `/signaling`. | `server/judge0.ts`, `ws` e o processo Node. |
 | `server/judge0.ts` | Validação e preparação comum das submissões, instrumentação de entrada/tempo e chamada HTTP ao Judge0. | Consumido pelo Express e pela função serverless. |
@@ -61,10 +73,9 @@ altera a página principal.
 | `vite.config.ts` | Servidor de desenvolvimento e proxy de `/api` e WebSocket `/signaling` para o Express. | Backend local em `localhost:3001`. |
 | `firebase.database.rules.json` | Regras de acesso aos nós `users` e `rooms` do Realtime Database. | Deve ser publicado no projeto Firebase utilizado pelo frontend. |
 | `.env.example` | Nomes e exemplos das variáveis de configuração. | Copie para `.env.local` localmente; os segredos do backend ficam no ambiente do servidor. |
-| `src/main.ts`, `src/style.css` | Experimento separado com Monaco e `y-monaco`. | Não participam da página e do fluxo principal atuais. |
-| `app.js`, `styles.css` | Protótipo anterior de interface. | Não são importados pela página principal. |
+| `experiments/monaco/main.ts`, `experiments/monaco/style.css` | Experimento separado com Monaco e `y-monaco`. | Não participam da página e do fluxo principal atuais. |
 
-O documento HTML contém um script clássico que inicializa o editor antes do
+O documento HTML contém um script clássico com a lógica do editor antes do
 script de módulo `/src/collaboration.ts`. O módulo de colaboração usa o mesmo
 `textarea#codeEditor` e observa os eventos `input`: o script da interface cuida
 da apresentação e do salvamento local, enquanto o módulo replica o texto no

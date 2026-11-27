@@ -19,16 +19,31 @@ usam `scanf`, compartilhamento de salas e execução remota pelo Judge0.
 
 ## Como o projeto está organizado
 
-O app carregado pelo Vite começa em `index.html`. O HTML contém a marcação da
-interface e a lógica do editor e da execução; os estilos ficam organizados em
-`src/styles/`, e a integração de colaboração é carregada por
-`src/collaboration.ts`.
+O app carregado pelo Vite começa em `index.html`, que contém a marcação da
+interface e carrega `src/app/main.ts` antes do módulo de colaboração. A lógica
+do editor, da execução e da comunicação HTTP fica em módulos TypeScript
+separados; os estilos permanecem organizados em `src/styles/`.
 
 ```text
 .
-├── index.html                    # Interface principal e lógica do editor/execução
+├── index.html                    # Marcação da interface e pontos de entrada
 ├── src/
+│   ├── app/
+│   │   ├── main.ts               # Inicialização e coordenação da interface
+│   │   └── state.ts              # Estado em memória das sessões de execução
+│   ├── editor/
+│   │   ├── editor.ts             # Eventos e apresentação do textarea
+│   │   ├── highlighting.ts       # Realce heurístico de sintaxe
+│   │   └── cursor.ts             # Posição do cursor
+│   ├── compiler/
+│   │   ├── compiler.ts           # Contrato independente do backend
+│   │   ├── compiler-service.ts   # Implementação remota atual via Judge0
+│   │   └── types.ts              # Contratos da execução compartilhados
 │   ├── collaboration.ts          # Firebase, Yjs, WebRTC e IndexedDB
+│   ├── services/
+│   │   └── api.ts                # Cliente HTTP de /api/run
+│   ├── storage/
+│   │   └── local-storage.ts      # Persistência local de código e nome
 │   ├── env.d.ts                  # Tipos das variáveis de ambiente do Vite
 │   └── styles/
 │       ├── index.css             # Entrada que importa os módulos de estilo
@@ -55,18 +70,25 @@ interface e a lógica do editor e da execução; os estilos ficam organizados em
 ```
 
 `experiments/monaco/main.ts` e `experiments/monaco/style.css` são arquivos
-experimentais: não são importados pela página principal. Para alterar a
-aplicação publicada, comece por `index.html`, `src/styles/`,
-`src/collaboration.ts` ou pelos módulos do backend; alterar o experimento não
-altera o app principal.
+experimentais: não são importados pela página principal. O build principal
+inclui `src`, `server` e `api` no TypeScript, não o diretório `experiments`.
+Para alterar a aplicação, comece pelo módulo correspondente em `src/app`,
+`src/editor`, `src/compiler`, `src/services`, `src/storage` ou
+`src/collaboration.ts`; a página HTML é a marcação e a composição dos pontos de
+entrada.
 
 ### Responsabilidades e dependências entre arquivos
 
 | Arquivo | Responsabilidade | Depende de / conversa com |
 | --- | --- | --- |
-| `index.html` | Marcações da interface e JavaScript do editor, realce visual, execução e entrada interativa. | `src/styles/index.css`, `/api/run`, `localStorage` e os elementos que `src/collaboration.ts` encontra pelo seletor HTML. |
+| `index.html` | Marcações e pontos de entrada; carrega a aplicação e depois a colaboração. | `src/app/main.ts`, `src/collaboration.ts` e `src/styles/index.css`. |
+| `src/app/main.ts`, `src/app/state.ts` | Inicialização da interface, identidade, modais, atalhos e estado da sessão de execução. | Editor, compiler, armazenamento local e os elementos do HTML. |
+| `src/editor/*.ts` | Editor textarea, realce, sincronização visual, numeração de linhas e cursor. | Elementos do editor em `index.html`; `editor.ts` emite alterações para a aplicação. |
+| `src/compiler/compiler.ts`, `src/compiler/compiler-service.ts`, `src/compiler/types.ts` | Contrato de execução e adaptação ao serviço remoto atual, sem expor o transporte Judge0 ao fluxo da interface. | `src/services/api.ts`; o contrato de entrada também é usado pelo backend. |
+| `src/services/api.ts` | Envio tipado para `POST /api/run` e tratamento de respostas/erros HTTP. | `/api/run`, tipos em `src/compiler/types.ts`. |
+| `src/storage/local-storage.ts` | Leitura e gravação do código e nome de exibição nas chaves locais existentes. | `localStorage`; não altera as chaves persistidas pela colaboração. |
 | `src/styles/index.css` e `src/styles/*.css` | Entrada de estilos e módulos separados por responsabilidade visual: tokens, layout, abas, editor, status, utilitários e responsividade. | Importados pela página principal; os seletores precisam corresponder à marcação de `index.html`. |
-| `src/collaboration.ts` | Identidade anônima, salas/presença, lista e ordem dos arquivos, sincronização Yjs, persistência IndexedDB, WebRTC, reconexão e diagnóstico. | Firebase Auth/Realtime Database, `yjs`, `y-indexeddb`, `y-webrtc` e os elementos de `index.html`. |
+| `src/collaboration.ts` | Identidade anônima, salas/presença, lista e ordem dos arquivos, sincronização Yjs, persistência IndexedDB, WebRTC, reconexão e diagnóstico. | Firebase Auth/Realtime Database, `yjs`, `y-indexeddb`, `y-webrtc` e os elementos/eventos de `index.html`. |
 | `server/index.ts` | Servidor Express local: endpoint de execução, saúde e WebSocket `/signaling`. | `server/judge0.ts`, `ws` e o processo Node. |
 | `server/judge0.ts` | Validação e preparação comum das submissões, instrumentação de entrada/tempo e chamada HTTP ao Judge0. | Consumido pelo Express e pela função serverless. |
 | `api/run.ts` | Adaptador da rota serverless `POST /api/run`; impõe o limite de timeout dessa hospedagem. | Reutiliza `server/judge0.ts`; não mantém uma segunda implementação do protocolo Judge0. |
@@ -75,21 +97,22 @@ altera o app principal.
 | `.env.example` | Nomes e exemplos das variáveis de configuração. | Copie para `.env.local` localmente; os segredos do backend ficam no ambiente do servidor. |
 | `experiments/monaco/main.ts`, `experiments/monaco/style.css` | Experimento separado com Monaco e `y-monaco`. | Não participam da página e do fluxo principal atuais. |
 
-O documento HTML contém um script clássico com a lógica do editor antes do
-script de módulo `/src/collaboration.ts`. O módulo de colaboração usa o mesmo
-`textarea#codeEditor` e observa os eventos `input`: o script da interface cuida
-da apresentação e do salvamento local, enquanto o módulo replica o texto no
-Yjs. Ao aplicar uma alteração remota, a flag `applyingRemoteChange` impede que
-o evento `input` gerado para atualizar o `textarea` seja enviado de volta como
-uma nova edição local; o salvamento visual/local do editor continua ocorrendo.
+`index.html` carrega `src/app/main.ts` antes de `src/collaboration.ts`. O editor
+e a colaboração usam o mesmo `textarea#codeEditor` e observam os eventos
+`input`: `src/editor/editor.ts` atualiza a apresentação e
+`src/storage/local-storage.ts` salva o texto, enquanto a colaboração replica a
+diferença incremental no Yjs. Ao aplicar uma alteração remota, a flag
+`applyingRemoteChange` impede que o evento `input` gerado para atualizar o
+`textarea` seja reenviado como uma nova edição local; o editor ainda atualiza o
+realce, a posição do cursor e o salvamento local.
 
 ## Visão arquitetural
 
 O sistema tem três planos independentes:
 
-1. **Interface e estado transitório do navegador** (`index.html`): código
-   atualmente visível, seleção do cursor, saída do programa, entradas da sessão
-   de execução, modais e notificações.
+1. **Interface e estado transitório do navegador** (`src/app/` e `src/editor/`):
+   código atualmente visível, seleção do cursor, saída do programa, entradas da
+   sessão de execução, modais e notificações.
 2. **Presença e metadados da sala** (Firebase): UID anônimo, nomes exibidos,
    dono, lista de membros e sala atual do dono. O Firebase não armazena nem
    transmite o texto dos arquivos.
@@ -106,8 +129,8 @@ signaling/WebRTC não deve impedir editar o arquivo próprio localmente.
 ### Como seguir uma alteração de código
 
 1. O usuário digita no `textarea#codeEditor`.
-2. `index.html` atualiza a cópia local `console-source-code`, os números de
-   linha, o realce e a posição do cursor.
+2. `src/editor/editor.ts` atualiza números de linha, realce e posição do cursor;
+   `src/storage/local-storage.ts` salva em `console-source-code`.
 3. `src/collaboration.ts` compara o texto anterior e o novo e transforma a
    diferença em operações incrementais no `Y.Text` ativo. Não acrescenta
    `#include`, flags ou texto de execução ao documento colaborativo.
@@ -214,11 +237,13 @@ Se alterar a porta do backend com `PORT`, atualize também o destino do proxy em
 
 ### Fluxo detalhado de compilação e execução
 
-1. Ao pressionar **Run**, o navegador captura uma cópia do texto atual do
+1. Ao pressionar **Run**, `src/app/main.ts` captura uma cópia do texto atual do
    editor, gera uma seed aleatória de 32 bits e começa uma sessão de execução.
    Alterar o editor depois disso não altera o código daquela sessão.
-2. O navegador envia `sourceCode`, `languageId: 50`, as entradas acumuladas,
-   `sessionSeed` e `sendEof` para `POST /api/run`. A rota local é atendida por
+2. A aplicação chama o contrato `Compiler.run`; `Judge0Compiler` converte o
+   pedido para a API atual de C e `src/services/api.ts` envia
+   `sourceCode`, `languageId: 50`, as entradas acumuladas, `sessionSeed` e
+   `sendEof` para `POST /api/run`. A rota local é atendida por
    `server/index.ts`; em produção, a plataforma encaminha a rota para
    `api/run.ts`.
 3. Ambos os pontos de entrada chamam as mesmas funções de `server/judge0.ts`.
@@ -228,9 +253,17 @@ Se alterar a porta do backend com `PORT`, atualize também o destino do proxy em
 4. O resultado Base64 do Judge0 é decodificado no backend. A resposta JSON
    preserva campos como `stdout`, `stderr`, `compile_output` e `status`, e
    acrescenta `needsInput` para a interface saber se deve pedir outra entrada.
-5. O navegador mostra a saída, o estado e o tempo. Erros HTTP e erros de
-   compilação/execução são apresentados como falha, sem misturá-los com o
-   estado da colaboração.
+5. `Judge0Compiler` adapta essa resposta ao resultado independente do
+   transporte; `src/app/main.ts` mostra saída, estado e tempo. Erros HTTP e
+   erros de compilação/execução são apresentados como falha, sem misturá-los
+   com o estado da colaboração.
+
+`src/compiler/compiler.ts` define a fronteira consumida pela aplicação;
+`src/compiler/compiler-service.ts` contém a implementação remota atual. A
+interface cobre uma execução completa porque o endpoint atual compila e
+executa em uma única solicitação. Não há compilador WebAssembly nem mudança no
+backend nesta fase; uma implementação futura poderá substituir o adaptador sem
+alterar o fluxo da interface.
 
 `server/judge0.ts` acrescenta ao programa wrappers para leituras de entrada
 (`scanf`, variantes de `fscanf`, `getchar`, `fgets`, `getline` e outras) e
@@ -284,6 +317,12 @@ O endpoint `POST /api/run` recebe JSON:
 entradas acumuladas; envie a mesma `sessionSeed` ao reexecutar uma sessão.
 Defina `sendEof: true` para encerrar as leituras com EOF. Respostas bem-sucedidas
 incluem `needsInput`, indicando que o programa aguarda mais entrada.
+
+No navegador, `src/services/api.ts` implementa o transporte HTTP e
+`src/compiler/compiler-service.ts` adapta o protocolo atual ao contrato
+`Compiler`. Os tipos compartilhados estão em `src/compiler/types.ts` e também
+definem o `RunInput` validado no backend. O protocolo HTTP e os campos da API
+permanecem inalterados.
 
 O backend valida o código (máximo de 100 KB), a entrada (máximo de 64 KB), a
 seed e os demais parâmetros antes de enviar a submissão codificada em Base64

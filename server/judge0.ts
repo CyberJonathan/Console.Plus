@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { ExecutionApiRequest } from "../src/compiler/types.js";
 
 const INPUT_MARKER_PREFIX = "__CONSOLE_NEEDS_INPUT_";
 const INTERNAL_SOURCE_NAME = "console_internal_runtime.c";
@@ -25,13 +26,7 @@ const wrappedFunctions = [
   "clock_gettime",
 ];
 
-export interface RunInput {
-  sourceCode: string;
-  languageId: number;
-  stdin: string;
-  sessionSeed: number;
-  sendEof: boolean;
-}
+export type RunInput = ExecutionApiRequest;
 
 export interface RunValidation {
   input?: RunInput;
